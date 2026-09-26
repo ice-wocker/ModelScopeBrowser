@@ -1,0 +1,38 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.mscope.browser'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.mscope.browser"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+        vectorDrawables.useSupportLibrary = false
+    }
+
+    buildTypes {
+        debug {
+            applicationIdSuffix ""
+            debuggable true
+        }
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}

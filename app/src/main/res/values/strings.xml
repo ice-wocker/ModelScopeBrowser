@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">魔搭模型库</string>
+    <string name="web_mode">网页模式</string>
+    <string name="web_title">魔搭 ModelScope</string>
+    <string name="detail_title">模型详情</string>
+    <string name="search">搜索</string>
+    <string name="search_hint">搜索模型，如 Qwen / DeepSeek / 语音</string>
+    <string name="loading">正在加载魔搭模型…</string>
+    <string name="empty">没有找到模型，可试试右上角「网页模式」</string>
+    <string name="no_more">已到最后一页</string>
+    <string name="load_failed">加载失败：%1$s</string>
+    <string name="loaded_status">已加载 %1$d / %2$d 个模型%3$s</string>
+    <string name="loaded_status_unknown">已加载 %1$d 个模型%2$s</string>
+    <string name="copied">链接已复制</string>
+    <string name="no_browser">未找到浏览器</string>
+    <string name="no_desc">该模型暂无简介</string>
+    <string name="btn_open">在魔搭打开</string>
+    <string name="btn_copy">复制链接</string>
+    <string name="btn_browser">用系统浏览器打开</string>
+    <string name="btn_back">后退</string>
+    <string name="btn_refresh">刷新</string>
+    <string name="btn_external">浏览器</string>
+</resources>
