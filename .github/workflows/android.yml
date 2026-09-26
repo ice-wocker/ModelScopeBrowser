@@ -7,6 +7,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -28,22 +31,30 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
+      # 注意：secrets 不能直接用于步骤级 if 条件（会导致工作流校验失败），
+      # 因此这里注入成 env，再在脚本里判断。
+      - name: Configure release signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > ../release.keystore
+            {
+              echo "storeFile=../release.keystore"
+              echo "storePassword=$KEYSTORE_PASSWORD"
+              echo "keyAlias=$KEY_ALIAS"
+              echo "keyPassword=$KEY_PASSWORD"
+            } > keystore.properties
+            echo "已配置正式签名"
+          else
+            echo "未配置签名 Secrets，release 将回退为 debug 签名"
+          fi
+
       - name: Build debug APK
         run: gradle assembleDebug --no-daemon --stacktrace
-
-      - name: Restore keystore
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
-        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > ../release.keystore
-
-      - name: Write keystore.properties
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
-        run: |
-          cat > keystore.properties <<EOF
-          storeFile=../release.keystore
-          storePassword=${{ secrets.KEYSTORE_PASSWORD }}
-          keyAlias=${{ secrets.KEY_ALIAS }}
-          keyPassword=${{ secrets.KEY_PASSWORD }}
-          EOF
 
       - name: Build release APK
         run: gradle assembleRelease --no-daemon --stacktrace
@@ -55,9 +66,11 @@ jobs:
           path: app/build/outputs/apk/**/*.apk
           if-no-files-found: error
 
+      # 仅在推送 v* 标签时自动发布 Release
       - name: Publish to Release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: app/build/outputs/apk/release/*.apk
           generate_release_notes: true
+          draft: false
