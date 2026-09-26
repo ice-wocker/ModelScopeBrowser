@@ -13,6 +13,11 @@ captures/
 # 本机 SDK 路径（不应提交）
 local.properties
 
+# 签名文件与口令（严禁提交）
+*.jks
+*.keystore
+keystore.properties
+
 # 系统文件
 .DS_Store
 Thumbs.db

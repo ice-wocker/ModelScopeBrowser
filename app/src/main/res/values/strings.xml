@@ -4,16 +4,28 @@
     <string name="web_mode">网页模式</string>
     <string name="web_title">魔搭 ModelScope</string>
     <string name="detail_title">模型详情</string>
+    <string name="about">关于</string>
     <string name="search">搜索</string>
     <string name="search_hint">搜索模型，如 Qwen / DeepSeek / 语音</string>
     <string name="loading">正在加载魔搭模型…</string>
-    <string name="empty">没有找到模型，可试试右上角「网页模式」</string>
     <string name="no_more">已到最后一页</string>
     <string name="load_failed">加载失败：%1$s</string>
     <string name="loaded_status">已加载 %1$d / %2$d 个模型%3$s</string>
     <string name="loaded_status_unknown">已加载 %1$d 个模型%2$s</string>
+
+    <string name="err_title">加载失败</string>
+    <string name="empty_title">没有找到模型</string>
+    <string name="empty_desc">换个关键字试试，或用右上角「网页模式」直接浏览魔搭官网。</string>
+    <string name="retry">重试</string>
+
+    <string name="sort_title">排序方式</string>
+    <string name="task_title">按任务类型筛选</string>
+    <string name="all_tasks">全部任务</string>
+    <string name="sort_fallback">该排序方式暂不可用，已按综合排序展示</string>
+    <string name="filter_fallback">任务筛选暂不可用，已展示全部类型</string>
+
     <string name="copied">链接已复制</string>
-    <string name="no_browser">未找到浏览器</string>
+    <string name="no_browser">未找到可用的浏览器</string>
     <string name="no_desc">该模型暂无简介</string>
     <string name="btn_open">在魔搭打开</string>
     <string name="btn_copy">复制链接</string>
@@ -21,4 +33,11 @@
     <string name="btn_back">后退</string>
     <string name="btn_refresh">刷新</string>
     <string name="btn_external">浏览器</string>
+
+    <string name="files_title">模型文件</string>
+    <string name="files_loading">正在读取文件列表…</string>
+    <string name="files_empty">未获取到文件列表</string>
+    <string name="file_download">下载</string>
+    <string name="file_open">用浏览器下载</string>
+    <string name="about_msg">魔搭模型库 v%1$s\n\n第三方开源的 ModelScope 浏览客户端，可浏览魔搭全部模型、按任务筛选与排序，并查看模型文件。\n\n数据来源：modelscope.cn 公开接口，与魔搭官方无关联。</string>
 </resources>

@@ -4,25 +4,40 @@ plugins {
 
 android {
     namespace 'com.mscope.browser'
-    compileSdk 34
+    compileSdk 36
+    buildToolsVersion = "36.0.0"
 
     defaultConfig {
         applicationId "com.mscope.browser"
         minSdk 24
-        targetSdk 34
-        versionCode 1
-        versionName "1.0"
-        vectorDrawables.useSupportLibrary = false
+        targetSdk 36
+        versionCode 2
+        versionName "1.1"
+    }
+
+    def keystoreProps = rootProject.file("keystore.properties")
+    signingConfigs {
+        release {
+            if (keystoreProps.exists()) {
+                def p = new Properties()
+                keystoreProps.withInputStream { p.load(it) }
+                storeFile rootProject.file(p['storeFile'])
+                storePassword p['storePassword']
+                keyAlias p['keyAlias']
+                keyPassword p['keyPassword']
+            }
+        }
     }
 
     buildTypes {
         debug {
             applicationIdSuffix ""
-            debuggable true
         }
         release {
             minifyEnabled false
-            signingConfig signingConfigs.debug
+            shrinkResources false
+            // 有 keystore.properties 就用正式签名，否则回退到 debug 签名，保证任何环境都能出包
+            signingConfig keystoreProps.exists() ? signingConfigs.release : signingConfigs.debug
         }
     }
 
@@ -35,4 +50,13 @@ android {
         abortOnError false
         checkReleaseBuilds false
     }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.core:core:1.13.1'
+    implementation 'com.google.android.material:material:1.12.0'
+    implementation 'androidx.recyclerview:recyclerview:1.3.2'
+    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
+    implementation 'io.noties.markwon:core:4.6.2'
 }
