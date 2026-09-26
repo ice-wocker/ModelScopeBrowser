@@ -74,13 +74,13 @@
                 android:text="@string/sort_title" />
 
             <com.google.android.material.chip.Chip
-                android:id="@+id/chipTask"
+                android:id="@+id/chipFilter"
                 style="@style/Widget.Material3.Chip.Assist"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
                 android:checkable="false"
-                android:text="@string/all_tasks" />
+                android:text="@string/filter_title" />
         </LinearLayout>
     </HorizontalScrollView>
 

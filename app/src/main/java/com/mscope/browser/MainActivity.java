@@ -25,11 +25,12 @@ import com.google.android.material.chip.Chip;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/** 模型列表主界面：分页浏览 + 搜索 + 排序 + 任务筛选。 */
+/** 模型列表主界面：分页浏览 + 搜索 + 排序 + 按维度筛选。 */
 public class MainActivity extends AppCompatActivity {
 
     private static final int PAGE_SIZE = 20;
@@ -42,7 +43,7 @@ public class MainActivity extends AppCompatActivity {
     private SwipeRefreshLayout refresh;
     private EditText etSearch;
     private Chip chipSort;
-    private Chip chipTask;
+    private Chip chipFilter;
     private TextView tvStatus;
     private ProgressBar progress;
     private View stateBox;
@@ -51,6 +52,7 @@ public class MainActivity extends AppCompatActivity {
     private MaterialButton stateBtn;
 
     private final List<ModelItem> items = new ArrayList<>();
+    private final List<ModelApi.Facet> facets = new ArrayList<>();
     private ModelAdapter adapter;
 
     private final ExecutorService executor = Executors.newFixedThreadPool(3);
@@ -59,16 +61,16 @@ public class MainActivity extends AppCompatActivity {
     // ---- 分页与请求状态 ----
     private boolean loading = false;
     private boolean hasMore = true;
-    private int nextPage = 1;      // 下一次要请求的页码（在 load 内部维护，避免外部自增导致跳页）
+    private int nextPage = 1;      // 下一次要请求的页码（由加载流程内部维护，避免外部自增导致跳页）
     private int reqSeq = 0;        // 请求序号，用于丢弃过期响应
 
     private String keyword = "";
     private int sortIndex = 0;
     private String sortBy = ModelApi.SORT_DEFAULT;
     private String order = "desc";
-    private int taskIndex = 0;
-    private String taskFilter = "";
-    private final List<ModelApi.Task> tasks = new ArrayList<>();
+    private String filterCategory = "";
+    private String filterValue = "";
+    private String filterLabel = "";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -80,7 +82,7 @@ public class MainActivity extends AppCompatActivity {
         refresh = findViewById(R.id.refresh);
         etSearch = findViewById(R.id.etSearch);
         chipSort = findViewById(R.id.chipSort);
-        chipTask = findViewById(R.id.chipTask);
+        chipFilter = findViewById(R.id.chipFilter);
         tvStatus = findViewById(R.id.tvStatus);
         progress = findViewById(R.id.progress);
         stateBox = findViewById(R.id.stateBox);
@@ -118,10 +120,9 @@ public class MainActivity extends AppCompatActivity {
         });
 
         chipSort.setOnClickListener(v -> showSortDialog());
-        chipTask.setOnClickListener(v -> showTaskDialog());
+        chipFilter.setOnClickListener(v -> showFilterDialog());
         stateBtn.setOnClickListener(v -> startLoad(items.isEmpty() ? 1 : nextPage, items.isEmpty()));
 
-        loadTasks();
         startLoad(1, true);
     }
 
@@ -152,7 +153,7 @@ public class MainActivity extends AppCompatActivity {
         try {
             return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
         } catch (Exception e) {
-            return "1.1";
+            return "1.2";
         }
     }
 
@@ -193,10 +194,11 @@ public class MainActivity extends AppCompatActivity {
         final String kw = keyword;
         final String sb = sortBy;
         final String od = order;
-        final String tf = taskFilter;
+        final String fc = filterCategory;
+        final String fv = filterValue;
 
         executor.execute(() -> {
-            final ModelApi.Page result = ModelApi.listModels(reqPage, PAGE_SIZE, kw, sb, od, tf);
+            final ModelApi.Page result = ModelApi.listModels(reqPage, PAGE_SIZE, kw, sb, od, fc, fv);
             ui.post(() -> {
                 if (seq != reqSeq) return;   // 过期响应，直接丢弃
                 applyResult(result, reqPage, reset);
@@ -210,6 +212,10 @@ public class MainActivity extends AppCompatActivity {
         refresh.setRefreshing(false);
 
         if (r.fallback) hasMore = false;
+        if (!r.facets.isEmpty()) {
+            facets.clear();
+            facets.addAll(r.facets);
+        }
 
         if (r.items.isEmpty()) {
             if (reset) {
@@ -246,10 +252,13 @@ public class MainActivity extends AppCompatActivity {
         if (!r.sortApplied) Toast.makeText(this, R.string.sort_fallback, Toast.LENGTH_SHORT).show();
         if (!r.filterApplied) Toast.makeText(this, R.string.filter_fallback, Toast.LENGTH_SHORT).show();
 
-        String suffix = (keyword.isEmpty() ? "" : "（" + keyword + "）");
+        StringBuilder cond = new StringBuilder();
+        if (!keyword.isEmpty()) cond.append("（").append(keyword).append("）");
+        if (!filterLabel.isEmpty()) cond.append("（").append(filterLabel).append("）");
+
         tvStatus.setText(r.total > 0
-                ? getString(R.string.loaded_status, items.size(), r.total, suffix)
-                : getString(R.string.loaded_status_unknown, items.size(), suffix));
+                ? getString(R.string.loaded_status, items.size(), r.total, cond.toString())
+                : getString(R.string.loaded_status_unknown, items.size(), cond.toString()));
     }
 
     private void showState(boolean show, String title, String desc, String btn) {
@@ -277,43 +286,83 @@ public class MainActivity extends AppCompatActivity {
                 .show();
     }
 
-    private void loadTasks() {
-        executor.execute(() -> {
-            try {
-                final List<ModelApi.Task> list = ModelApi.listTasks();
-                ui.post(() -> {
-                    tasks.clear();
-                    tasks.addAll(list);
-                });
-            } catch (Exception ignored) {
-                // 任务列表拿不到时，筛选入口会提示稍后重试
-            }
-        });
-    }
-
-    private void showTaskDialog() {
-        if (tasks.isEmpty()) {
-            Toast.makeText(this, R.string.files_loading, Toast.LENGTH_SHORT).show();
-            loadTasks();
+    /** 一级：选择筛选维度（来自接口返回的聚合数据，保证是服务端真正支持的条件）。 */
+    private void showFilterDialog() {
+        final LinkedHashMap<String, String> groups = new LinkedHashMap<>();
+        for (ModelApi.Facet f : facets) {
+            if (!groups.containsKey(f.group)) groups.put(f.group, f.groupLabel);
+        }
+        if (groups.isEmpty()) {
+            Toast.makeText(this, R.string.filter_empty, Toast.LENGTH_SHORT).show();
             return;
         }
-        final String[] labels = new String[tasks.size() + 1];
-        labels[0] = getString(R.string.all_tasks);
-        for (int i = 0; i < tasks.size(); i++) {
-            ModelApi.Task t = tasks.get(i);
-            labels[i + 1] = t.label + " · " + t.domain;
+        final List<String> keys = new ArrayList<>(groups.keySet());
+        final String[] labels = new String[keys.size() + 1];
+        labels[0] = getString(R.string.filter_all);
+        for (int i = 0; i < keys.size(); i++) labels[i + 1] = groups.get(keys.get(i));
+
+        int checked = 0;
+        if (!filterCategory.isEmpty()) {
+            int idx = keys.indexOf(filterCategory);
+            if (idx >= 0) checked = idx + 1;
         }
+
         new MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.task_title)
-                .setSingleChoiceItems(labels, taskIndex, (d, which) -> {
-                    taskIndex = which;
-                    taskFilter = which == 0 ? "" : tasks.get(which - 1).name;
-                    chipTask.setText(which == 0 ? getString(R.string.all_tasks) : tasks.get(which - 1).label);
+                .setTitle(R.string.filter_title)
+                .setSingleChoiceItems(labels, checked, (d, which) -> {
                     d.dismiss();
+                    if (which == 0) {
+                        clearFilter();
+                        startLoad(1, true);
+                    } else {
+                        showValueDialog(keys.get(which - 1), groups.get(keys.get(which - 1)));
+                    }
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
+    /** 二级：选择该维度下的具体取值（带模型数量）。 */
+    private void showValueDialog(final String group, final String groupLabel) {
+        final List<ModelApi.Facet> values = new ArrayList<>();
+        for (ModelApi.Facet f : facets) {
+            if (f.group.equals(group)) values.add(f);
+        }
+        if (values.isEmpty()) return;
+
+        final String[] labels = new String[values.size() + 1];
+        labels[0] = getString(R.string.filter_all);
+        int checked = 0;
+        for (int i = 0; i < values.size(); i++) {
+            ModelApi.Facet f = values.get(i);
+            labels[i + 1] = f.value + "  (" + f.count + ")";
+            if (group.equals(filterCategory) && f.value.equals(filterValue)) checked = i + 1;
+        }
+
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(groupLabel)
+                .setSingleChoiceItems(labels, checked, (d, which) -> {
+                    d.dismiss();
+                    if (which == 0) {
+                        clearFilter();
+                    } else {
+                        ModelApi.Facet f = values.get(which - 1);
+                        filterCategory = f.group;
+                        filterValue = f.value;
+                        filterLabel = f.groupLabel + "：" + f.value;
+                        chipFilter.setText(filterLabel);
+                    }
                     startLoad(1, true);
                 })
                 .setNegativeButton(android.R.string.cancel, null)
                 .show();
+    }
+
+    private void clearFilter() {
+        filterCategory = "";
+        filterValue = "";
+        filterLabel = "";
+        chipFilter.setText(R.string.filter_title);
     }
 
     @Override

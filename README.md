@@ -1,15 +1,15 @@
 # 魔搭模型库 (ModelScopeBrowser)
 
-一个轻量 Android App，用来浏览[魔搭社区 ModelScope](https://www.modelscope.cn/models)上的**全部大模型**：分页列表、关键字搜索、排序、按任务类型筛选、模型详情与文件下载，并内置网页兜底模式。
+一个轻量 Android App，用来浏览[魔搭社区 ModelScope](https://www.modelscope.cn/models)上的**全部大模型**：分页列表、关键字搜索、排序、按维度筛选、模型详情与文件下载，并内置网页兜底模式。
 
-当前版本：**v1.1**（versionCode 2）
+当前版本：**v1.2**（versionCode 3）
 
 ## 功能
 
-- **模型列表**：分页加载魔搭全部模型（当前接口返回总量约 22.7 万个），滑到底自动加载下一页
+- **模型列表**：分页加载魔搭全部模型（当前接口返回总量约 **25.9 万个**），滑到底自动加载下一页
 - **关键字搜索**：按模型名 / 中文名检索，如 `Qwen`、`DeepSeek`、`语音`
 - **排序**：综合排序 / 最多下载 / 最多收藏 / 最近更新
-- **任务筛选**：从魔搭任务树（5 大领域 86 个任务）中按任务类型过滤，如「视觉多模态理解」「文本生成图片」
+- **维度筛选**：按 **许可证 / 框架库 / 标签 / 语言 / 模型结构 / 领域** 过滤，取值与数量实时来自接口聚合
 - **列表卡片**：中文名、`命名空间/模型名`、任务类型、下载量、收藏数、许可证、标签、简介
 - **详情页**：基本信息 + **模型文件列表**（含体积、LFS 标记，可单个下载）+ **Markdown 简介渲染**
 - **交互**：下拉刷新、加载/空态/错误态与一键重试、Material 3 卡片式列表、**暗色模式自动适配**
@@ -21,6 +21,32 @@
 - 或到 [Releases](../../releases) 下载
 
 要求：Android 7.0 (API 24) 及以上。首次安装需允许「安装未知来源应用」。
+
+## v1.2 更新
+
+**修复「404 page not found」**
+
+v1.0/v1.1 的列表请求一直报 `404 page not found`，根因是我用错了请求方式与路径。通过抓取魔搭网页自身发出的请求，确认真实接口是：
+
+| 项 | 错误做法（v1.1） | 正确做法（v1.2） |
+|---|---|---|
+| 路径 | `/api/v1/dolphin/models` | 路径相同，但… |
+| HTTP 方法 | `POST` / `GET` | **`PUT`**（用 POST/GET 访问该路径会返回 404） |
+| 筛选参数名 | `SingleCriterion` | **`Criterion`**（`SingleCriterion` 会被服务端忽略） |
+| 筛选维度 | 任务类型（`category:"tasks"`） | **许可证 / 框架库 / 标签 / 语言 / 模型结构 / 领域**（即响应里 `Data.FiledAgg` 的字段） |
+
+实测对照（同一路径、不同方法）：
+
+- `POST` → `404 page not found`；`GET` → `404 page not found`；**`PUT` → `200`**
+- `PUT` + `{"Name":"qwen"}` → `TotalCount 26291`（搜索生效）
+- `PUT` + `{"SortBy":"StarsCount"}` → 首位变为高星标模型（排序生效）
+- `PUT` + `{"Criterion":[{"category":"license","predicate":"contains","values":["apache-2.0"]}]}` → `TotalCount 48472`（筛选生效，与聚合计数一致）
+
+**其他变更**
+
+- 「任务筛选」替换为上述**真实生效**的维度筛选，二级弹窗直接展示可选项与模型数量
+- 模型总数按新接口校正为约 **25.9 万**
+- 顺带移除已确认无效的任务筛选相关代码
 
 ## v1.1 更新
 
@@ -99,15 +125,19 @@ app/src/main/java/com/mscope/browser/
 
 | 用途 | 接口 |
 |---|---|
-| 模型列表（主） | `POST /api/v1/dolphin/models`（`SortBy` + `Order` 排序，`SingleCriterion` 任务筛选） |
-| 模型列表（降级 1） | `GET /api/v1/dolphin/models?...` |
-| 模型列表（降级 2，兜底） | `GET /api/v1/dolphin/agg/homepage` |
+| 模型列表（主） | **`PUT /api/v1/dolphin/models`**，body 含 `PageSize`/`PageNumber`/`Name`/`SortBy`/`Order`/`Criterion` |
+| 模型列表（兜底） | `GET /api/v1/dolphin/agg/homepage`（全部接口失败时的降级） |
 | 模型详情 | `GET /api/v1/models/{namespace}/{name}` |
 | 模型文件列表 | `GET /api/v1/models/{namespace}/{name}/repo/files?Revision=master&Recursive=true` |
 | 文件下载 | `GET /api/v1/models/{namespace}/{name}/repo?Revision=master&FilePath={path}` |
-| 任务树 | `GET /api/v1/tasks` |
 
-**降级策略**：列表请求按「完整参数 → 去掉筛选 → 去掉排序 → GET → 首页聚合」依次尝试，并通过 `sortApplied` / `filterApplied` / `fallback` 标记把实际生效情况反馈到界面（不可用时 Toast 提示，而不是静默失败）。
+响应结构：`Data.Model.Models[]`（模型数组）、`Data.Model.TotalCount`（总数）、`Data.FiledAgg`（各筛选维度的取值与数量）。
+
+**筛选维度**取自 `Data.FiledAgg`，因此界面里出现的条件一定是服务端真正支持的：`license`、`libraries`、`tags`、`language`、`model_type`、`nexa_catalog`。
+
+**排序取值**：`Default`（综合）、`DownloadsCount`（最多下载）、`StarsCount`（最多收藏）、`GmtModified`（最近更新），配合 `Order: desc`。
+
+**降级策略**：列表请求按「完整参数 → 去掉筛选 → 去掉排序 → 首页聚合」依次尝试，并通过 `sortApplied` / `filterApplied` / `fallback` 标记把实际生效情况反馈到界面（不可用时 Toast 提示，而不是静默失败）。
 
 **宽松解析**：不依赖固定返回层级，自动在响应 JSON 中定位「最像模型数组」的字段，并优先读取其同级的 `TotalCount`，接口结构调整时仍可工作。
 
@@ -128,8 +158,8 @@ app/src/main/java/com/mscope/browser/
 
 ## 已知限制
 
-- 列表主接口为 POST，部分企业网关会拦截 POST，此时自动降级；全部失败可用「网页模式」
-- 排序 / 筛选的枚举值取自社区逆向结果，若服务端不接受会自动回退为默认值并提示
+- 列表接口必须用 `PUT`，部分企业网关会拦截 PUT，此时会自动降级为首页聚合数据；全部失败可用「网页模式」
+- 筛选维度由接口聚合数据驱动，不含「任务类型」（该条件下服务端无效）
 - 文件「下载」通过系统浏览器打开魔搭原始下载地址，App 内不做断点续传
 - 未做登录，因此不展示需要登录权限的模型内容
 

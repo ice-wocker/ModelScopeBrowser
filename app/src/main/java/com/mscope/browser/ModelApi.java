@@ -18,20 +18,21 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.Iterator;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
- * 魔搭 ModelScope 数据访问层。
+ * 魔搭 ModelScope 数据访问层（接口均经实测确认）。
  *
- * 列表：POST /api/v1/dolphin/models（支持 SortBy/Order 排序、SingleCriterion 任务筛选），
- *      失败时按「去掉筛选 → 去掉排序 → GET → 首页聚合」逐级降级，并通过 Page 上的
- *      sortApplied / filterApplied / fallback 标记告知调用方实际生效情况。
+ * 列表：PUT /api/v1/dolphin/models
+ *   body: {"PageSize":N,"PageNumber":P,"Name":"关键字","SortBy":"Default|DownloadsCount|StarsCount|GmtModified",
+ *          "Order":"desc","Criterion":[{"category":"license","predicate":"contains","values":["mit"]}]}
+ *   返回: Data.Model.Models[] + Data.Model.TotalCount + Data.FiledAgg（可选筛选维度的聚合计数）
+ *   注意：分页与筛选都走 PUT；用 POST/GET 访问该路径会返回 404。
+ *   注意：筛选参数名是 Criterion；SingleCriterion 会被服务端忽略。
+ *
  * 详情：GET /api/v1/models/{ns}/{name}
  * 文件：GET /api/v1/models/{ns}/{name}/repo/files?Revision=master&Recursive=true
  * 下载：GET /api/v1/models/{ns}/{name}/repo?Revision=master&FilePath={path}
- * 任务树：GET /api/v1/tasks
  */
 public class ModelApi {
 
@@ -42,30 +43,37 @@ public class ModelApi {
     public static final String SORT_STARS = "StarsCount";
     public static final String SORT_UPDATED = "GmtModified";
 
+    /** 服务端真正支持的筛选维度（来自 Data.FiledAgg 的字段名）。 */
+    private static final String[] FACET_ORDER =
+            {"license", "libraries", "tags", "language", "model_type", "nexa_catalog"};
+
     private static final String UA =
             "Mozilla/5.0 (Linux; Android " + Build.VERSION.RELEASE + ") AppleWebKit/537.36 "
                     + "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
 
     public static class Page {
         public final List<ModelItem> items = new ArrayList<>();
+        public final List<Facet> facets = new ArrayList<>();
         public int total = -1;
         public String error;
-        /** 走的是首页聚合兜底：只有第一页数据，不可继续分页 */
+        /** 全部接口都失败时退化为首页聚合数据：只有一页，不可继续分页 */
         public boolean fallback;
         public boolean sortApplied = true;
         public boolean filterApplied = true;
     }
 
-    /** 魔搭任务类型（用于筛选）。 */
-    public static class Task {
-        public final String name;
-        public final String label;
-        public final String domain;
+    /** 一个可用的筛选维度取值，如 「许可证: mit (9840)」。 */
+    public static class Facet {
+        public final String group;
+        public final String groupLabel;
+        public final String value;
+        public final long count;
 
-        public Task(String name, String label, String domain) {
-            this.name = name;
-            this.label = label;
-            this.domain = domain;
+        public Facet(String group, String groupLabel, String value, long count) {
+            this.group = group;
+            this.groupLabel = groupLabel;
+            this.value = value;
+            this.count = count;
         }
     }
 
@@ -107,42 +115,36 @@ public class ModelApi {
 
     /* ------------------------------------------------------------- 列表接口 */
 
-    private static class Attempt {
-        final String body;
-        final boolean filter;
-        final boolean sort;
-
-        Attempt(String body, boolean filter, boolean sort) {
-            this.body = body;
-            this.filter = filter;
-            this.sort = sort;
-        }
-    }
-
     public static Page listModels(int page, int pageSize, String keyword,
-                                  String sortBy, String order, String taskFilter) {
+                                  String sortBy, String order,
+                                  String filterCategory, String filterValue) {
         Page p = new Page();
         final String kw = keyword == null ? "" : keyword.trim();
         final String sort = (sortBy == null || sortBy.isEmpty()) ? SORT_DEFAULT : sortBy;
         final String ord = (order == null || order.isEmpty()) ? "desc" : order;
-        final boolean hasFilter = taskFilter != null && !taskFilter.isEmpty();
+        final boolean hasFilter = filterCategory != null && !filterCategory.isEmpty()
+                && filterValue != null && !filterValue.isEmpty();
         final boolean hasSort = !SORT_DEFAULT.equals(sort);
 
-        List<Attempt> attempts = new ArrayList<>();
-        addAttempt(attempts, new Attempt(buildPayload(page, pageSize, kw, sort, ord, taskFilter), hasFilter, hasSort));
+        // 逐级降级：完整参数 → 去掉筛选 → 再去掉排序。服务端目前都支持，这里只是兜底。
+        List<String> payloads = new ArrayList<>();
+        payloads.add(buildPayload(page, pageSize, kw, sort, ord,
+                hasFilter ? filterCategory : null, hasFilter ? filterValue : null));
         if (hasFilter) {
-            addAttempt(attempts, new Attempt(buildPayload(page, pageSize, kw, sort, ord, null), false, hasSort));
+            payloads.add(buildPayload(page, pageSize, kw, sort, ord, null, null));
         }
         if (hasFilter || hasSort) {
-            addAttempt(attempts, new Attempt(buildPayload(page, pageSize, kw, SORT_DEFAULT, ord, null), false, false));
+            payloads.add(buildPayload(page, pageSize, kw, SORT_DEFAULT, ord, null, null));
         }
 
-        for (Attempt a : attempts) {
+        for (int i = 0; i < payloads.size(); i++) {
             try {
-                String resp = http("POST", BASE + "/api/v1/dolphin/models", a.body);
+                String resp = http("PUT", BASE + "/api/v1/dolphin/models", payloads.get(i));
                 if (parsePage(resp, p)) {
-                    p.filterApplied = a.filter;
-                    p.sortApplied = a.sort;
+                    boolean usedFilter = i == 0 && hasFilter;
+                    boolean usedSort = i <= 1;
+                    p.filterApplied = !hasFilter || usedFilter;
+                    p.sortApplied = !hasSort || (usedSort && i <= 1);
                     return p;
                 }
             } catch (Exception e) {
@@ -150,26 +152,14 @@ public class ModelApi {
             }
         }
 
-        try {
-            String url = BASE + "/api/v1/dolphin/models?PageSize=" + pageSize + "&PageNumber=" + page
-                    + "&SortBy=" + URLEncoder.encode(SORT_DEFAULT, "UTF-8") + "&Order=" + ord
-                    + "&Name=" + URLEncoder.encode(kw, "UTF-8")
-                    + "&Public=true&SingleCriterion=&Criterion=";
-            String resp = http("GET", url, null);
-            if (parsePage(resp, p)) {
-                p.filterApplied = !hasFilter;
-                p.sortApplied = !hasSort;
-                return p;
-            }
-        } catch (Exception e) {
-            p.error = e.getMessage();
-        }
-
-        if (page <= 1 && !hasFilter && !hasSort) {
+        // 最后兜底：首页聚合数据（只有第一页，且不带筛选/排序）
+        if (page <= 1) {
             try {
                 String resp = http("GET", BASE + "/api/v1/dolphin/agg/homepage", null);
                 if (parsePage(resp, p)) {
                     p.fallback = true;
+                    p.filterApplied = !hasFilter;
+                    p.sortApplied = !hasSort;
                     p.error = null;
                     return p;
                 }
@@ -180,36 +170,29 @@ public class ModelApi {
         return p;
     }
 
-    private static void addAttempt(List<Attempt> list, Attempt a) {
-        for (Attempt x : list) {
-            if (x.body.equals(a.body)) return;
-        }
-        list.add(a);
-    }
-
     private static String buildPayload(int page, int pageSize, String kw,
-                                       String sortBy, String order, String taskFilter) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("{\"PageSize\":").append(pageSize)
-                .append(",\"PageNumber\":").append(page)
-                .append(",\"SortBy\":").append(JSONObject.quote(sortBy))
-                .append(",\"Order\":").append(JSONObject.quote(order))
-                .append(",\"Name\":").append(JSONObject.quote(kw));
-        if (taskFilter != null && !taskFilter.isEmpty()) {
-            sb.append(",\"SingleCriterion\":[{\"category\":\"tasks\",\"predicate\":\"contains\",\"values\":[")
-                    .append(JSONObject.quote(taskFilter)).append("]}]");
-        } else {
-            sb.append(",\"SingleCriterion\":[]");
+                                       String sortBy, String order,
+                                       String filterCategory, String filterValue) {
+        String criterion = "[]";
+        if (filterCategory != null && !filterCategory.isEmpty()
+                && filterValue != null && !filterValue.isEmpty()) {
+            criterion = "[{\"category\":" + JSONObject.quote(filterCategory)
+                    + ",\"predicate\":\"contains\",\"values\":[" + JSONObject.quote(filterValue) + "]}]";
         }
-        sb.append(",\"Criterion\":[]}");
-        return sb.toString();
+        return "{\"PageSize\":" + pageSize
+                + ",\"PageNumber\":" + page
+                + ",\"Name\":" + JSONObject.quote(kw)
+                + ",\"SortBy\":" + JSONObject.quote(sortBy)
+                + ",\"Order\":" + JSONObject.quote(order)
+                + ",\"Target\":\"\""
+                + ",\"SingleCriterion\":[]"
+                + ",\"Criterion\":" + criterion + "}";
     }
 
     /* ------------------------------------------------------------- 详情接口 */
 
     public static ModelItem getModelDetail(String namespace, String name) throws Exception {
-        String url = BASE + "/api/v1/models/" + namespace + "/" + name;
-        String resp = http("GET", url, null);
+        String resp = http("GET", BASE + "/api/v1/models/" + namespace + "/" + name, null);
         JSONObject root = new JSONObject(resp);
         JSONObject data = root.optJSONObject("Data");
         if (data == null) data = root;
@@ -234,8 +217,7 @@ public class ModelApi {
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject o = arr.optJSONObject(i);
                 if (o == null) continue;
-                String type = o.optString("Type", "blob");
-                if (!"blob".equalsIgnoreCase(type)) continue;
+                if (!"blob".equalsIgnoreCase(o.optString("Type", "blob"))) continue;
                 ModelFile f = new ModelFile();
                 f.path = o.optString("Path", o.optString("Name", ""));
                 f.size = ModelItem.toLong(o.opt("Size"));
@@ -252,41 +234,6 @@ public class ModelApi {
                 + "/repo?Revision=master&FilePath=" + URLEncoder.encode(filePath, "UTF-8");
     }
 
-    /* ------------------------------------------------------------- 任务接口 */
-
-    public static List<Task> listTasks() throws Exception {
-        String resp = http("GET", BASE + "/api/v1/tasks", null);
-        JSONObject root = new JSONObject(resp);
-        JSONObject data = root.optJSONObject("Data");
-        JSONArray domains = data != null ? data.optJSONArray("Domains") : null;
-
-        Map<String, Task> map = new LinkedHashMap<>();
-        if (domains != null) {
-            for (int i = 0; i < domains.length(); i++) {
-                JSONObject d = domains.optJSONObject(i);
-                if (d == null) continue;
-                String domain = d.optString("ChineseName", d.optString("DomainName", ""));
-                collectTasks(d.optJSONArray("Tasks"), domain, map, 0);
-            }
-        }
-        return new ArrayList<>(map.values());
-    }
-
-    private static void collectTasks(JSONArray arr, String domain, Map<String, Task> out, int depth) {
-        if (arr == null || depth > 3) return;
-        for (int i = 0; i < arr.length(); i++) {
-            JSONObject t = arr.optJSONObject(i);
-            if (t == null) continue;
-            String name = t.optString("Name", "");
-            if (!name.isEmpty() && !out.containsKey(name)) {
-                String label = t.optString("ChineseName", name);
-                if (label.isEmpty()) label = name;
-                out.put(name, new Task(name, label, domain));
-            }
-            collectTasks(t.optJSONArray("Tasks"), domain, out, depth + 1);
-        }
-    }
-
     /* ----------------------------------------------------------- 宽松解析器 */
 
     private static boolean parsePage(String resp, Page p) {
@@ -300,8 +247,12 @@ public class ModelApi {
                 if (o != null && !o.optString("Name", "").isEmpty()) parsed.add(ModelItem.from(o));
             }
             if (parsed.isEmpty()) return false;
+
             p.items.clear();
             p.items.addAll(parsed);
+            p.facets.clear();
+            p.facets.addAll(parseFacets(root));
+
             int total = -1;
             if (c.parent != null) total = (int) ModelItem.toLong(c.parent.opt("TotalCount"));
             if (total <= 0) total = findInt(root, "TotalCount");
@@ -309,6 +260,49 @@ public class ModelApi {
             return true;
         } catch (Exception e) {
             return false;
+        }
+    }
+
+    /** 解析 Data.FiledAgg，得到服务端真正支持的筛选维度与计数。 */
+    private static List<Facet> parseFacets(JSONObject root) {
+        List<Facet> out = new ArrayList<>();
+        JSONObject data = root.optJSONObject("Data");
+        JSONObject agg = data != null ? data.optJSONObject("FiledAgg") : null;
+        if (agg == null) agg = root.optJSONObject("FiledAgg");
+        if (agg == null) return out;
+
+        for (String cat : FACET_ORDER) {
+            JSONArray arr = agg.optJSONArray(cat);
+            if (arr == null) continue;
+            int n = Math.min(arr.length(), 40);
+            for (int i = 0; i < n; i++) {
+                JSONObject o = arr.optJSONObject(i);
+                if (o == null) continue;
+                String value = o.optString("Value", "");
+                if (value.isEmpty()) continue;
+                out.add(new Facet(cat, facetLabel(cat), value, ModelItem.toLong(o.opt("Count"))));
+            }
+        }
+        return out;
+    }
+
+    public static String facetLabel(String group) {
+        if (group == null) return "";
+        switch (group) {
+            case "license":
+                return "许可证";
+            case "libraries":
+                return "框架库";
+            case "tags":
+                return "标签";
+            case "language":
+                return "语言";
+            case "model_type":
+                return "模型结构";
+            case "nexa_catalog":
+                return "领域";
+            default:
+                return group;
         }
     }
 

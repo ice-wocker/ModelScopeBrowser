@@ -19,10 +19,11 @@
     <string name="retry">重试</string>
 
     <string name="sort_title">排序方式</string>
-    <string name="task_title">按任务类型筛选</string>
-    <string name="all_tasks">全部任务</string>
+    <string name="filter_title">筛选</string>
+    <string name="filter_all">全部（清除筛选）</string>
+    <string name="filter_empty">筛选条件尚未加载，请先下拉刷新列表</string>
     <string name="sort_fallback">该排序方式暂不可用，已按综合排序展示</string>
-    <string name="filter_fallback">任务筛选暂不可用，已展示全部类型</string>
+    <string name="filter_fallback">筛选条件暂不可用，已展示全部模型</string>
 
     <string name="copied">链接已复制</string>
     <string name="no_browser">未找到可用的浏览器</string>
