@@ -1,0 +1,21 @@
+[versions]
+agp = "8.13.2"
+appcompat = "1.7.0"
+core = "1.15.0"
+material = "1.13.0"
+recyclerview = "1.4.0"
+swiperefresh = "1.1.0"
+markwon = "4.6.2"
+junit = "4.13.2"
+
+[libraries]
+androidx-appcompat = { module = "androidx.appcompat:appcompat", version.ref = "appcompat" }
+androidx-core = { module = "androidx.core:core", version.ref = "core" }
+androidx-recyclerview = { module = "androidx.recyclerview:recyclerview", version.ref = "recyclerview" }
+androidx-swiperefreshlayout = { module = "androidx.swiperefreshlayout:swiperefreshlayout", version.ref = "swiperefresh" }
+material = { module = "com.google.android.material:material", version.ref = "material" }
+markwon = { module = "io.noties.markwon:core", version.ref = "markwon" }
+junit = { module = "junit:junit", version.ref = "junit" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }

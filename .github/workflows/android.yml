@@ -25,8 +25,7 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.14.5'
+        # 版本由仓库内的 Gradle Wrapper（gradle/wrapper）决定；该 action 同时负责依赖缓存
 
       # ubuntu-latest 已预装 Android SDK；这里只补齐项目需要的 platform/build-tools/ndk/cmake。
       # 注意：不要用 android-actions/setup-android，它会执行 `sdkmanager tools`，
@@ -68,11 +67,27 @@ jobs:
             echo "未配置签名 Secrets，release 将回退为 debug 签名"
           fi
 
+      - name: Unit tests
+        run: ./gradlew testDebugUnitTest --no-daemon --stacktrace
+
+      - name: Lint
+        run: ./gradlew lintDebug --no-daemon --stacktrace
+
       - name: Build debug APK
-        run: gradle assembleDebug --no-daemon --stacktrace
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Build release APK
-        run: gradle assembleRelease --no-daemon --stacktrace
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            app/build/reports/tests/**
+            app/build/reports/lint-results-debug.html
+          if-no-files-found: ignore
 
       - name: Upload APKs
         uses: actions/upload-artifact@v4
