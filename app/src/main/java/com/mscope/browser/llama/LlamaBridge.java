@@ -1,9 +1,6 @@
 package com.mscope.browser.llama;
 
-/**
- * llama.cpp 的 JNI 接口（对应 cpp/llama_bridge.cpp）。
- * 只做薄封装，线程安全由 {@link LlamaEngine} 保证。
- */
+/** llama.cpp 的 native 接口声明，实现在 app/src/main/cpp/llama_bridge.cpp。 */
 public final class LlamaBridge {
 
     static {
@@ -13,36 +10,42 @@ public final class LlamaBridge {
     private LlamaBridge() {
     }
 
-    /** 每次生成一个 token 时回调（在主调线程上）。 */
+    /** 流式回调：每个 token 片段都会调用一次。 */
     public interface TokenCallback {
         void onToken(String piece);
     }
 
+    /** 本机 CPU 是否满足编译所用指令集；空串表示可用，否则返回不可用原因。 */
+    public static native String nativeSupported();
+
     /**
-     * 加载 GGUF 模型。
+     * 加载模型。
      *
-     * @return 会话句柄；0 表示失败
+     * @param nThreads      解码线程数（只跑大核，降低每 token 延迟）
+     * @param nThreadsBatch 预填充线程数（吞吐型任务，可用满核心）
      */
-    public static native long nativeInit(String modelPath, int nCtx, int nThreads);
+    public static native long nativeInit(String modelPath, int nCtx, int nThreads, int nThreadsBatch);
 
     public static native void nativeFree(long handle);
 
-    /** 清空 KV 缓存（开始新对话时调用）。 */
+    /** 清空 KV 与上下文缓存（开始新对话）。 */
     public static native void nativeReset(long handle);
 
-    /** 请求中断当前生成。 */
     public static native void nativeCancel(long handle);
 
     public static native int nativeContextSize(long handle);
 
-    /** 套用模型自带的对话模板，返回实际送入模型的 prompt（便于调试）。 */
+    /** 当前 KV 中缓存的 token 数。 */
+    public static native int nativeCachedTokens(long handle);
+
+    /** 统计文本的分词长度。 */
+    public static native int nativeCountTokens(long handle, String text);
+
     public static native String nativeBuildPrompt(long handle, String[] roles, String[] contents);
 
     /**
-     * 流式生成。
+     * 流式生成。内部会复用上一轮的 KV 公共前缀，只解码新增 token。
      *
-     * @param maxTokens 最多新生成多少 token
-     * @param temp      温度，&lt;=0 表示贪婪解码
      * @return 完整回复文本；失败返回空串
      */
     public static native String nativeGenerate(long handle, String[] roles, String[] contents,

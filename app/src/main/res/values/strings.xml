@@ -81,7 +81,7 @@
     <string name="chat_greeting">你好，我是运行在本机的 %1$s。\n所有推理都在你的手机上完成，离线可用、数据不出设备。有什么可以帮你？</string>
     <string name="chat_thinking">正在思考…</string>
     <string name="chat_stopped">（已停止）</string>
-    <string name="chat_stat">%1$d tokens · %2$s</string>
+    <string name="chat_stat">首字 %1$.1fs · %2$.1f tok/s · 共 %3$d tokens</string>
     <string name="chat_unload">当前已有模型「%1$s」在内存中，切换到「%2$s」需要重新加载，继续吗？</string>
     <string name="chat_need_model">请先在本地模型页选择一个已下载的模型</string>
 

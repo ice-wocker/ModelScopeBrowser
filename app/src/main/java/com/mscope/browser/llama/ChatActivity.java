@@ -31,7 +31,6 @@ import com.mscope.browser.local.LocalModel;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 
 /** 与本地 GGUF 模型对话：llama.cpp 流式生成、可调参数、可中断。 */
 public class ChatActivity extends AppCompatActivity {
@@ -258,12 +257,14 @@ public class ChatActivity extends AppCompatActivity {
             }
 
             @Override
-            public void onDone(String fullText, int tokens, long elapsedMs) {
+            public void onDone(String fullText, int tokens, long elapsedMs, long prefillMs,
+                               double tokensPerSec) {
                 if (!alive) return;
                 ChatMessage m = messages.get(aiIndex);
                 if (!TextUtils.isEmpty(fullText)) m.content = fullText;
                 if (TextUtils.isEmpty(m.content)) m.content = getString(R.string.chat_stopped);
-                stats.set(aiIndex, getString(R.string.chat_stat, tokens, fmtMs(elapsedMs)));
+                stats.set(aiIndex, getString(R.string.chat_stat,
+                        prefillMs / 1000.0, tokensPerSec, tokens));
                 adapter.notifyItemChanged(aiIndex);
                 setGenerating(false);
                 scrollToBottom();
@@ -297,11 +298,6 @@ public class ChatActivity extends AppCompatActivity {
     private void hideIme() {
         InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
         if (imm != null) imm.hideSoftInputFromWindow(etInput.getWindowToken(), 0);
-    }
-
-    private static String fmtMs(long ms) {
-        if (ms < 1000) return ms + " ms";
-        return String.format(Locale.CHINA, "%.1f s", ms / 1000.0);
     }
 
     /* ------------------------------------------------------------------ 菜单 */
