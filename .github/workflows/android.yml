@@ -103,10 +103,14 @@ jobs:
           if-no-files-found: error
 
       # 仅在推送 v* 标签时自动发布 Release
+      - name: Rename release APK
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: cp app/build/outputs/apk/release/app-release.apk "ModelScope-Models-${GITHUB_REF_NAME#v}.apk"
+
       - name: Publish to Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: app/build/outputs/apk/release/*.apk
+          files: ModelScope-Models-*.apk
           generate_release_notes: true
           draft: false

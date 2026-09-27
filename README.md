@@ -28,7 +28,7 @@
 ## 下载安装
 
 - 仓库内：[`dist/ModelScope-Models.apk`](dist/ModelScope-Models.apk)（v2.3.0）
-- 或到 [Releases](../../releases) 下载 `ModelScope-Models-2.3.0.apk`（与 `dist/` 完全一致，正式签名）
+- 或到 [Releases](../../releases) 下载 `ModelScope-Models-2.3.0.apk`（CI 构建，与 `dist/` 同一签名）
 - 历史版本：[`dist/ModelScope-Models-2.2.0.apk`](dist/ModelScope-Models-2.2.0.apk)、[`dist/ModelScope-Models-2.1.1.apk`](dist/ModelScope-Models-2.1.1.apk)
 
 > ⚠️ **v2.1 的包不可用，请勿安装**：该版本开启 R8 时漏掉了 JNI 回调方法的 keep 规则，加载任意模型都会失败并报 `no non-static method "...onToken(Ljava/lang/String;)V"`。该问题已在 **v2.1.1** 修复，请使用 v2.1.1 或更高版本（`dist/ModelScope-Models-2.1.apk` 已移除）。
