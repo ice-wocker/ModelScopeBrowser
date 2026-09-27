@@ -2,7 +2,7 @@
 
 一个轻量 Android App，用来浏览[魔搭社区 ModelScope](https://www.modelscope.cn/models)上的**全部大模型**：分页列表、关键字搜索、排序、按维度筛选、模型详情与文件下载，**内置 llama.cpp 引擎，把 .gguf 模型下载到手机后即可直接离线对话**。
 
-当前版本：**v2.1**（versionCode 6）
+当前版本：**v2.1.1**（versionCode 7）
 
 ## 功能
 
@@ -21,9 +21,11 @@
 
 ## 下载安装
 
-- 仓库内：[`dist/ModelScope-Models.apk`](dist/ModelScope-Models.apk)（v2.1）
-- 或到 [Releases](../../releases) 下载 `ModelScope-Models-2.1.apk`（与 `dist/` 完全一致，正式签名）
+- 仓库内：[`dist/ModelScope-Models.apk`](dist/ModelScope-Models.apk)（v2.1.1）
+- 或到 [Releases](../../releases) 下载 `ModelScope-Models-2.1.1.apk`（与 `dist/` 完全一致，正式签名）
 - 历史版本：[`dist/ModelScope-Models-2.0.apk`](dist/ModelScope-Models-2.0.apk)
+
+> ⚠️ **v2.1 的包不可用，请勿安装**：该版本开启 R8 时漏掉了 JNI 回调方法的 keep 规则，加载任意模型都会失败并报 `no non-static method "...onToken(Ljava/lang/String;)V"`。请使用 **v2.1.1**（`dist/ModelScope-Models-2.1.apk` 已移除）。
 
 要求：Android 7.0 (API 24) 及以上。首次安装需允许「安装未知来源应用」。
 
@@ -31,6 +33,17 @@
 >
 > v2.1 开启了 R8 混淆与资源压缩，**安装包从 14 MB 降到约 11 MB**（含 `arm64-v8a` + `armeabi-v7a` 两套原生库）。
 > 建议使用 **arm64 机型 + ≥4 GB 内存**，并优先选择 `Q4_K_M` / `Q4_0` 等量化版本（0.5B~3B 体验最佳）。
+
+## v2.1.1 更新
+
+**修复 release 包无法加载模型**（v2.1 引入的回归）
+
+- **现象**：release 包（R8 混淆后）加载任意模型都失败，报 `no non-static method "Lxxx;.onToken(Ljava/lang/String;)V"`
+- **原因**：`llama_bridge.cpp` 用**字面方法名**回调 Java —— `GetMethodID(cbClass, "onToken", "(Ljava/lang/String;)V")`。v2.1 的 proguard 规则只保住了 native 方法与 `LlamaBridge` 类本身，没保住回调接口的方法名，`onToken` 被 R8 重命名，运行时自然找不到。
+- **修复**：在 [`app/proguard-rules.pro`](app/proguard-rules.pro) 保留 `LlamaBridge$TokenCallback` 接口及**所有实现类**的 `onToken` 方法名；并逐项复核了产物 dex 中的 JNI 符号（11 个 native 方法名、回调方法名、全部 Manifest 组件类名均未被重命名）
+- 同时移除 `dist/ModelScope-Models-2.1.apk`（该包不可用）
+
+**教训**：只要 native 层按「字符串名字」查找 Java 符号（类/方法/字段），就必须在 proguard 规则里显式保留。这一点**编译期无法验证**——本次是打开 R8 后带来的回归，`assembleRelease` 通过并不代表运行可用。
 
 ## v2.1 更新
 
