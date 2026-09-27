@@ -20,10 +20,12 @@
 
 ## 下载安装
 
-- 仓库内：[`dist/ModelScope-Models.apk`](dist/ModelScope-Models.apk)
-- 或到 [Releases](../../releases) 下载
+- 仓库内：[`dist/ModelScope-Models.apk`](dist/ModelScope-Models.apk)（v2.0）
+- 或到 [Releases](../../releases) 下载 `ModelScope-Models-2.0.apk`（与 `dist/` 完全一致，正式签名）
 
 要求：Android 7.0 (API 24) 及以上。首次安装需允许「安装未知来源应用」。
+
+> 从 v1.0 / v1.1 / dist 包升级可直接覆盖安装（同一签名）；v1.2 的 Release 包是 CI 未配置签名密钥时的 debug 签名产物，若你装的是它，需先卸载再安装 v2.0。
 
 > APK 内含 `arm64-v8a` 与 `armeabi-v7a` 两个架构的 llama.cpp 原生库，体积约 14 MB。
 > 建议使用 **arm64 机型 + ≥4 GB 内存**，并优先选择 `Q4_K_M` / `Q4_0` 等量化版本（0.5B~3B 体验最佳）。
@@ -209,6 +211,8 @@ app/src/main/cpp/
 | `KEY_PASSWORD` | keyPassword |
 
 未配置时 CI 仅产出 debug 签名包。
+
+> **建议务必配置这四个 Secrets**：否则 CI 发布的 Release APK 与仓库内的 `dist/` 包签名不同，用户无法互相覆盖更新（v1.2 就出现过这个问题）。
 
 ## 已知限制
 
