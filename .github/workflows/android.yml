@@ -64,7 +64,13 @@ jobs:
             } > keystore.properties
             echo "已配置正式签名"
           else
-            echo "未配置签名 Secrets，release 将回退为 debug 签名"
+            # 打 Tag 发布的包会直接给用户下载，必须是正式签名。
+            # 曾经因为这里静默回退成 debug 签名，导致 v1.2 的 Release 包无法覆盖安装。
+            if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+              echo "::error::发布 Release 前必须配置签名 Secrets，否则会产出 debug 签名的包，用户无法覆盖安装。请在 Settings → Secrets and variables → Actions 中配置 KEYSTORE_BASE64 / KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD。"
+              exit 1
+            fi
+            echo "::warning::未配置签名 Secrets，本次 release 为 debug 签名（仅作 CI 产物，请勿用于发布）"
           fi
 
       - name: Unit tests
