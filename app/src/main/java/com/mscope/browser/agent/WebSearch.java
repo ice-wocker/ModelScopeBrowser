@@ -83,6 +83,14 @@ public class WebSearch {
         return sb.toString().trim();
     }
 
+    /** 抓取一个网页并抽成纯文本，供 fetch_url 工具使用；过长会截断。 */
+    public static String fetchPage(String url, int maxChars) throws IOException {
+        String text = text(fetch(url));
+        if (text.isEmpty()) return "（页面没有可读文本，可能是纯脚本或需要登录的页面）";
+        if (text.length() > maxChars) text = text.substring(0, maxChars) + "\n…（内容过长，已截断）";
+        return text;
+    }
+
     /* ------------------------------------------------------------------ 实现 */
 
     private static String fetch(String url) throws IOException {

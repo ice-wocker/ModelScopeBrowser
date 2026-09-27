@@ -92,7 +92,7 @@
     <string name="chat_loaded">模型已就绪 · 上下文 %1$d tokens</string>
     <string name="chat_loaded_backend">模型已就绪 · 上下文 %1$d tokens · %2$s</string>
     <string name="chat_load_failed">模型加载失败：%1$s</string>
-    <string name="chat_greeting">你好，我是运行在本机的 %1$s。\n所有推理都在你的手机上完成，离线可用、数据不出设备。\n\n我还能：联网搜索（打开上方「联网」）、生成文件并保存到工作区、执行本机终端命令。有什么可以帮你？</string>
+    <string name="chat_greeting">你好，我是运行在本机的 %1$s。\n所有推理都在你的手机上完成，离线可用、数据不出设备。\n\n智能体模式下我能直接调用工具干活：联网搜索、在手机终端跑命令、读写工作区文件、预览网页（写操作与命令会先找你确认）。\n\n试试让我「看看工作区里有什么」，或「搜索今天的科技新闻并总结」。</string>
     <string name="chat_thinking">正在思考…</string>
     <string name="chat_stopped">（已停止）</string>
     <string name="chat_stat">首字 %1$.1fs · %2$.1f tok/s · 共 %3$d tokens</string>
@@ -132,8 +132,20 @@
 
     <!-- 智能体能力：联网 / 工作区 / 终端 -->
     <string name="chat_web">联网</string>
-    <string name="chat_web_on">联网已开启：每次提问会先检索网页再作答</string>
-    <string name="chat_web_off">联网已关闭：仅使用本地模型知识</string>
+    <string name="chat_web_on">已允许 AI 联网：需要时它会自己搜索网页</string>
+    <string name="chat_web_off">已禁止 AI 联网：只能用本机知识与终端</string>
+    <string name="chat_agent">智能体</string>
+    <string name="chat_agent_on">智能体已开启：模型可自主调用终端、联网与文件工具</string>
+    <string name="chat_agent_off">智能体已关闭：只做普通对话，不调用工具</string>
+    <string name="agent_step">智能体执行中 · 第 %1$d 步</string>
+    <string name="agent_running">执行中…</string>
+    <string name="agent_sys_hint">你可以调用工具在手机本机上完成任务。需要实时信息或本机操作时，请只输出下面这种代码块（一次可输出多个表示连续调用）：\n\n```tool\n{"name": "工具名", "arguments": {参数}}\n```\n\n可用工具：\n%1$s\n调用后你会收到一条 &lt;tool_result&gt; 消息（里面是真实执行结果），然后继续作答；不需要工具时直接回答，不要输出代码块。</string>
+    <string name="agent_confirm_title">允许执行「%1$s」？</string>
+    <string name="agent_allow">允许</string>
+    <string name="agent_deny">拒绝</string>
+    <string name="agent_allow_all">本会话都允许</string>
+    <string name="agent_denied">用户拒绝了这次操作，请换一种方式，或直接说明无法完成。</string>
+    <string name="agent_max_rounds">已达到单轮工具调用上限（%1$d 步），先给出当前结论。</string>
     <string name="chat_searching">正在联网检索…</string>
     <string name="chat_tool_search">联网搜索</string>
     <string name="chat_tool_file">文件</string>
@@ -148,11 +160,11 @@
     <string name="chat_saved_many">已自动保存 %1$d 个文件到工作区</string>
     <string name="chat_tap_workspace">点此打开工作区</string>
     <string name="chat_quick_title">试试这些</string>
-    <string name="chat_quick_1">写一个带样式的个人主页 HTML</string>
+    <string name="chat_quick_1">看看工作区里有哪些文件，再帮我总结</string>
     <string name="chat_quick_2">帮我搜索今天的科技新闻并总结</string>
-    <string name="chat_quick_3">用 Python 写一个快速排序并解释</string>
-    <string name="chat_slash_tip">输入 / 可使用命令：/search 搜索、/ls 列目录、/write 写文件、/run 终端命令、/help 全部命令</string>
-    <string name="chat_slash_help">可用命令：\n/search &lt;关键词&gt;  联网检索并总结\n/web on|off        开关联网\n/ls [目录]         列出工作区目录\n/cat &lt;文件&gt;       查看文件\n/write &lt;文件&gt; &lt;内容&gt;  写入文件\n/rm &lt;路径&gt;        删除\n/preview &lt;文件&gt;   预览网页\n/files             打开工作区\n/run &lt;命令&gt;        执行本机终端命令（如 /run tree）\n/help              显示本帮助</string>
+    <string name="chat_quick_3">在终端里创建一个 hello.txt 并写入内容</string>
+    <string name="chat_slash_tip">输入 / 可使用命令：/search 搜索、/run 本机命令、/ls 列目录、/help 全部命令</string>
+    <string name="chat_slash_help">可用命令：\n/search &lt;关键词&gt;  联网检索并总结\n/web on|off        允许 / 禁止 AI 联网\n/run &lt;命令&gt;        在本机终端执行命令（真 shell）\n/ls [目录]         列出工作区目录\n/cat &lt;文件&gt;        查看文件\n/preview &lt;文件&gt;    预览网页\n/files             打开工作区\n/help              显示本帮助\n\n其余输入会直接当本机命令执行，例如 /pwd、/grep foo *.txt。</string>
     <string name="chat_cmd_failed">命令执行失败：%1$s</string>
 
     <string name="workspace_title">工作区</string>
@@ -174,12 +186,12 @@
     <string name="workspace_share_failed">分享失败：%1$s</string>
     <string name="file_size_dir">目录</string>
     <string name="term_title">终端</string>
-    <string name="term_subtitle">本机环境 · 工作区 %1$s</string>
-    <string name="term_hint">输入命令后回车（help 查看全部）</string>
+    <string name="term_subtitle">本机真 shell · 工作区 %1$s</string>
+    <string name="term_hint">输入命令后回车（真 shell，工作目录=工作区）</string>
     <string name="term_run">执行</string>
     <string name="term_clear">清屏</string>
     <string name="term_last">上一条</string>
-    <string name="term_ready">本机终端已就绪，输入 help 查看可用命令。</string>
+    <string name="term_ready">本机终端已就绪（/system/bin/sh，工作目录=工作区）。试试 ls、pwd、cat 文件。</string>
     <string name="preview_title">网页预览</string>
     <string name="preview_open_browser">浏览器打开</string>
     <string name="preview_reload">刷新</string>

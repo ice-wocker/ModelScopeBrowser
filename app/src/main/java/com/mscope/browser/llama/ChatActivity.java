@@ -31,9 +31,11 @@ import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.mscope.browser.R;
 import com.mscope.browser.Ui;
+import com.mscope.browser.agent.AgentTools;
 import com.mscope.browser.agent.HtmlPreviewActivity;
-import com.mscope.browser.agent.Terminal;
+import com.mscope.browser.agent.Shell;
 import com.mscope.browser.agent.TerminalActivity;
+import com.mscope.browser.agent.ToolCall;
 import com.mscope.browser.agent.WebSearch;
 import com.mscope.browser.agent.Workspace;
 import com.mscope.browser.agent.WorkspaceActivity;
@@ -42,8 +44,10 @@ import com.mscope.browser.local.LocalModel;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -56,12 +60,9 @@ import io.noties.markwon.ext.tables.TablePlugin;
 /**
  * 与本地 GGUF 模型对话：llama.cpp 流式生成、Markdown 渲染、可中断，历史会话自动持久化。
  *
- * <p>在此基础上还提供三项「智能体」能力：
- * <ul>
- *   <li><b>联网搜索</b>：打开开关后，每次提问先检索网页并把结果注入上下文；</li>
- *   <li><b>工作区文件</b>：模型输出的带文件名代码块会自动保存到应用私有工作区，可预览；</li>
- *   <li><b>本机终端</b>：受限命令在手机上直接读写工作区（见 {@link Terminal}）。</li>
- * </ul>
+ * <p>「智能体模式」下这里是一条真正的工具调用闭环：模型输出工具调用 → App 执行
+ * （本机终端 / 联网 / 工作区文件 / 网页预览）→ 结果回灌 → 模型继续推理，直到给出最终答案。
+ * 工具协议见 {@link ToolCall}，执行见 {@link AgentTools}。写操作与本机命令会先征求用户确认。
  */
 public class ChatActivity extends AppCompatActivity {
 
@@ -74,11 +75,19 @@ public class ChatActivity extends AppCompatActivity {
     private static final String PREF = "chat_prefs";
     private static final String KEY_CTX = "n_ctx";
     private static final String KEY_SYS = "system";
-    private static final String KEY_WEB = "web_search";
+    private static final String KEY_AGENT = "agent_mode";
+    private static final String KEY_TOOL_WEB = "tool_web";
     private static final String DEFAULT_SYS =
             "你是一个运行在手机本地的中文 AI 助手，请用简体中文准确、简洁地回答。"
                     + "涉及代码或网页时，请用带文件名的 Markdown 代码块输出，例如 ```html filename=index.html，"
                     + "这样文件会自动保存到用户的工作区。";
+    /** 智能体模式下的默认提示词：不再要求「输出代码块」，而是鼓励直接用工具干活。 */
+    private static final String DEFAULT_SYS_AGENT =
+            "你是一个运行在手机本地的中文 AI 助手，可以调用工具在本机上完成实际任务。"
+                    + "请用简体中文准确、简洁地回答；需要动手时先调用工具，再根据真实结果作答。";
+
+    /** 单轮对话里最多允许的工具调用轮数，防止模型反复空转。 */
+    private static final int MAX_ROUNDS = 8;
 
     /** 默认上下文窗口。输出上限必须挤在上下文里（上下文 = 提示词/历史 + 本次输出），
      *  所以想放开输出，上下文也要一起放大；KV 已量化为 q8_0，8192 的占用约为原先一半。 */
@@ -104,9 +113,12 @@ public class ChatActivity extends AppCompatActivity {
     private ChatStore store;
     private ChatStore.Session session;
     private Workspace workspace;
-    private Terminal terminal;
+    private Shell shell;
+    private AgentTools agentTools;
     private Markwon markwon;
     private final ExecutorService tools = Executors.newSingleThreadExecutor();
+    /** 智能体循环专用线程：生成、解析、执行工具都在这里串行推进。 */
+    private final ExecutorService agentExec = Executors.newSingleThreadExecutor();
 
     private final LlamaEngine.Params params = new LlamaEngine.Params();
     /** 当前会话的消息与统计（直接引用 session 内的列表，切会话时整体替换）。 */
@@ -123,14 +135,25 @@ public class ChatActivity extends AppCompatActivity {
     private TextView tvHintTitle;
     private TextView tvHintDesc;
     private TextView chipWeb;
+    private TextView chipAgent;
     private ProgressBar loadProgress;
 
     private SharedPreferences prefs;
     private String systemPrompt = DEFAULT_SYS;
     private int nCtx = DEFAULT_CTX;
-    private boolean webSearchOn;
+    /** 智能体模式：模型可自主调用工具，并在结果回灌后继续推理。 */
+    private boolean agentMode;
+    /** 是否允许模型联网（web_search / fetch_url 工具）。 */
+    private boolean toolWeb;
     /** 本轮联网检索得到的资料，只在本次请求里注入 system，不写入历史。 */
     private String pendingWebContext;
+
+    /** 当前轮次已推进到第几步（第 1 步就是普通生成），仅用于状态提示。 */
+    private volatile int agentStep;
+    /** 用户点了停止：让循环在下一个安全点退出。 */
+    private volatile boolean turnCancelled;
+    /** 用户选择了「本会话都允许」：写操作与命令不再逐次确认。 */
+    private volatile boolean allowAllWrites;
 
     private boolean generating;
     private boolean ready;
@@ -150,11 +173,20 @@ public class ChatActivity extends AppCompatActivity {
         engine = LlamaEngine.get();
         store = new ChatStore(this);
         workspace = new Workspace(this);
-        terminal = new Terminal(workspace);
+        shell = new Shell(workspace);
+        agentTools = new AgentTools(workspace, shell,
+                rel -> runOnUiThread(() -> {
+                    try {
+                        HtmlPreviewActivity.start(this, rel);
+                    } catch (Exception e) {
+                        Toast.makeText(this, String.valueOf(e.getMessage()), Toast.LENGTH_SHORT).show();
+                    }
+                }));
         prefs = getSharedPreferences(PREF, MODE_PRIVATE);
         nCtx = prefs.getInt(KEY_CTX, DEFAULT_CTX);
         systemPrompt = prefs.getString(KEY_SYS, DEFAULT_SYS);
-        webSearchOn = prefs.getBoolean(KEY_WEB, false);
+        agentMode = prefs.getBoolean(KEY_AGENT, true);
+        toolWeb = prefs.getBoolean(KEY_TOOL_WEB, true);
 
         markwon = Markwon.builder(this)
                 .usePlugin(StrikethroughPlugin.create())
@@ -194,6 +226,7 @@ public class ChatActivity extends AppCompatActivity {
         tvHintTitle = findViewById(R.id.tvHintTitle);
         tvHintDesc = findViewById(R.id.tvHintDesc);
         chipWeb = findViewById(R.id.chipWeb);
+        chipAgent = findViewById(R.id.chipAgent);
         loadProgress = findViewById(R.id.loadProgress);
 
         LinearLayoutManager lm = new LinearLayoutManager(this);
@@ -205,6 +238,7 @@ public class ChatActivity extends AppCompatActivity {
         btnSend.setOnClickListener(v -> onSendClicked());
         findViewById(R.id.btnMore).setOnClickListener(v -> showToolsMenu());
         chipWeb.setOnClickListener(v -> toggleWeb());
+        chipAgent.setOnClickListener(v -> toggleAgent());
         findViewById(R.id.chipWorkspace).setOnClickListener(v -> openWorkspace());
         findViewById(R.id.chipTerminal).setOnClickListener(v -> openTerminal());
         bindQuick(R.id.quick1);
@@ -212,6 +246,7 @@ public class ChatActivity extends AppCompatActivity {
         bindQuick(R.id.quick3);
 
         updateChipWeb();
+        updateChipAgent();
         tvHintTitle.setText(model.displayName);
         tvHintDesc.setText(getString(R.string.chat_greeting, model.displayName));
 
@@ -334,6 +369,8 @@ public class ChatActivity extends AppCompatActivity {
             tvCtx.setText(R.string.chat_searching);
         } else if (stopping) {
             tvCtx.setText(R.string.chat_stopping);
+        } else if (generating && agentStep >= 2) {
+            tvCtx.setText(getString(R.string.agent_step, agentStep));
         } else {
             tvCtx.setText(getString(R.string.chat_ctx_usage, engine.cachedTokens(), engine.contextSize()));
         }
@@ -342,16 +379,29 @@ public class ChatActivity extends AppCompatActivity {
     /* -------------------------------------------------------------- 能力开关 */
 
     private void toggleWeb() {
-        webSearchOn = !webSearchOn;
-        prefs.edit().putBoolean(KEY_WEB, webSearchOn).apply();
+        toolWeb = !toolWeb;
+        prefs.edit().putBoolean(KEY_TOOL_WEB, toolWeb).apply();
         updateChipWeb();
-        Toast.makeText(this, webSearchOn ? R.string.chat_web_on : R.string.chat_web_off,
+        Toast.makeText(this, toolWeb ? R.string.chat_web_on : R.string.chat_web_off,
                 Toast.LENGTH_SHORT).show();
     }
 
     private void updateChipWeb() {
-        chipWeb.setSelected(webSearchOn);
-        chipWeb.setText(webSearchOn ? getString(R.string.chat_web) + " · 开" : getString(R.string.chat_web));
+        chipWeb.setSelected(toolWeb);
+        chipWeb.setText(toolWeb ? getString(R.string.chat_web) + " · 开" : getString(R.string.chat_web));
+    }
+
+    private void toggleAgent() {
+        agentMode = !agentMode;
+        prefs.edit().putBoolean(KEY_AGENT, agentMode).apply();
+        updateChipAgent();
+        Toast.makeText(this, agentMode ? R.string.chat_agent_on : R.string.chat_agent_off,
+                Toast.LENGTH_SHORT).show();
+    }
+
+    private void updateChipAgent() {
+        chipAgent.setSelected(agentMode);
+        chipAgent.setText(agentMode ? getString(R.string.chat_agent) + " · 开" : getString(R.string.chat_agent));
     }
 
     private void openWorkspace() {
@@ -369,6 +419,7 @@ public class ChatActivity extends AppCompatActivity {
         if (generating) {
             if (!stopping) {          // 立即给出反馈：原生层要到下个 token 边界才真正停下
                 stopping = true;
+                turnCancelled = true;  // 让智能体循环在下一个安全点退出
                 engine.cancel();
                 btnSend.setEnabled(false);
                 updateCtx();
@@ -398,11 +449,7 @@ public class ChatActivity extends AppCompatActivity {
         persist();
 
         pendingWebContext = null;
-        if (webSearchOn) {
-            searchThenGenerate(text);
-        } else {
-            startGeneration();
-        }
+        startTurn(-1);
     }
 
     /** 联网模式：先检索、把结果作为工具卡片展示并存为待注入上下文，再让模型作答。 */
@@ -440,7 +487,7 @@ public class ChatActivity extends AppCompatActivity {
                 }
                 setSearching(false);
                 pendingWebContext = fContext;
-                startGeneration();
+                startTurn(-1);
             });
         });
     }
@@ -452,39 +499,147 @@ public class ChatActivity extends AppCompatActivity {
         updateCtx();
     }
 
-    /** 为「最后一条消息」生成回复：先补一个空的 AI 占位，再跑推理。 */
-    private void startGeneration() {
-        messages.add(new ChatMessage(ChatMessage.ASSISTANT, ""));
-        stats.add("");
-        final int aiIndex = messages.size() - 1;
+    /* ------------------------------------------------------------ 智能体循环 */
 
-        adapter.notifyDataSetChanged();
-        scrollToBottom();
+    /** 开始一轮对话。continueFrom >= 0 时把新内容追加到该条助手气泡（用于「继续生成」）。 */
+    private void startTurn(final int continueFrom) {
+        turnCancelled = false;
+        agentStep = 0;
+        stopping = false;
         setGenerating(true);
-
-        engine.generate(buildRequest(), params, listener(aiIndex));
+        final int cf = continueFrom;
+        agentExec.execute(() -> runAgent(cf));
     }
 
-    /** 请求 = 系统提示（含本轮联网资料）+ 历史（跳过工具卡片与末尾空占位）。 */
-    private List<ChatMessage> buildRequest() {
-        List<ChatMessage> req = new ArrayList<>();
-        StringBuilder sys = new StringBuilder();
-        if (!TextUtils.isEmpty(systemPrompt.trim())) sys.append(systemPrompt.trim());
-        if (!TextUtils.isEmpty(pendingWebContext)) {
-            if (sys.length() > 0) sys.append("\n\n");
-            sys.append(getString(R.string.chat_web_context)).append('\n').append(pendingWebContext);
+    /**
+     * 工具调用闭环：生成 → 解析 → 执行 → 结果回灌 → 再生成。
+     * 只有智能体模式才会真的解析并执行工具；否则退化成单次生成。
+     */
+    private void runAgent(final int continueFrom) {
+        final List<ChatMessage> ctx = buildBaseContext();
+        int reuse = continueFrom;
+
+        for (int round = 0; round < MAX_ROUNDS; round++) {
+            if (turnCancelled || !alive) break;
+            agentStep = round + 1;
+            uiSync(this::updateCtx);
+
+            Gen gen = generateBlocking(ctx, reuse);
+            reuse = -1;
+            if (gen == null) break;                       // 出错或被取消
+
+            final List<ToolCall> calls = agentMode
+                    ? ToolCall.parse(gen.text, AgentTools.names())
+                    : new ArrayList<>();
+            final String visible = (agentMode
+                    ? ToolCall.strip(gen.text, AgentTools.names())
+                    : gen.text).trim();
+            final boolean last = calls.isEmpty();
+            // 整轮只有工具调用时删掉空气泡；但「继续生成」已有内容的气泡要保留
+            applyAssistantText(gen.index, gen.prefix + visible, last || !gen.prefix.isEmpty());
+
+            if (last) {                                    // 没有工具调用：这就是最终答案
+                if (!TextUtils.isEmpty(visible)) {
+                    final String v = visible;
+                    uiSync(() -> autoSaveFiles(v));
+                }
+                break;
+            }
+
+            // 模型这轮的原始输出（含调用）留在上下文里，它才知道自己刚才要干什么
+            ctx.add(new ChatMessage(ChatMessage.ASSISTANT, gen.text));
+            for (ToolCall c : calls) {
+                if (turnCancelled || !alive) break;
+                final int card = addToolCard(c);
+                boolean ok = true;
+                if (AgentTools.risky(c.name) && !allowAllWrites) ok = confirmTool(c);
+                final String result = ok ? agentTools.exec(c) : getString(R.string.agent_denied);
+                updateToolCard(card, result);
+                ctx.add(new ChatMessage(ChatMessage.USER, toolResultText(c.name, result)));
+            }
         }
-        if (sys.length() > 0) req.add(new ChatMessage(ChatMessage.SYSTEM, sys.toString()));
-        for (int i = 0; i < messages.size() - 1; i++) {
-            ChatMessage m = messages.get(i);
+
+        if (agentStep >= MAX_ROUNDS && !turnCancelled) {
+            uiSync(() -> addTool(getString(R.string.chat_tool_info), "info",
+                    getString(R.string.agent_max_rounds, MAX_ROUNDS)));
+        }
+        finishTurn();
+    }
+
+    /** 请求 = 系统提示（含工具说明与本轮联网资料）+ 历史（跳过工具卡片）。 */
+    private List<ChatMessage> buildBaseContext() {
+        List<ChatMessage> req = new ArrayList<>();
+        String sys = buildSystemPrompt();
+        if (!TextUtils.isEmpty(sys)) req.add(new ChatMessage(ChatMessage.SYSTEM, sys));
+        for (ChatMessage m : messages) {
             if (m.isTool()) continue;
-            if (!TextUtils.isEmpty(m.content)) req.add(m);
+            if (TextUtils.isEmpty(m.content)) continue;
+            req.add(m);
         }
         return req;
     }
 
-    private LlamaEngine.StreamListener listener(final int aiIndex) {
-        return new LlamaEngine.StreamListener() {
+    private String buildSystemPrompt() {
+        StringBuilder sb = new StringBuilder();
+        String base = systemPrompt == null ? "" : systemPrompt.trim();
+        if (TextUtils.isEmpty(base) || DEFAULT_SYS.equals(base)) {
+            base = agentMode ? DEFAULT_SYS_AGENT : DEFAULT_SYS;
+        }
+        sb.append(base);
+        if (agentMode) {
+            sb.append("\n\n")
+              .append(getString(R.string.agent_sys_hint, AgentTools.describe(toolWeb, true, true)));
+        }
+        if (!TextUtils.isEmpty(pendingWebContext)) {
+            sb.append("\n\n").append(getString(R.string.chat_web_context))
+              .append('\n').append(pendingWebContext);
+        }
+        return sb.toString();
+    }
+
+    /** 回灌给模型的工具结果：用 user 角色 + 明确包裹，兼容各家聊天模板。 */
+    private static String toolResultText(String name, String result) {
+        return "<tool_result name=\"" + name + "\">\n" + result + "\n</tool_result>";
+    }
+
+    private static class Gen {
+        final String text;
+        final int index;
+        final String prefix;
+
+        Gen(String text, int index, String prefix) {
+            this.text = text;
+            this.index = index;
+            this.prefix = prefix;
+        }
+    }
+
+    /** 生成一轮并阻塞等待完成；返回 null 表示失败或已取消。 */
+    private Gen generateBlocking(final List<ChatMessage> ctx, final int reuseIndex) {
+        final int[] idx = {-1};
+        final String[] pre = {""};
+        uiSync(() -> {
+            if (reuseIndex >= 0 && reuseIndex < messages.size()
+                    && messages.get(reuseIndex).isAssistant()) {
+                idx[0] = reuseIndex;                       // 继续生成：复用同一条气泡
+                ChatMessage m = messages.get(reuseIndex);
+                pre[0] = m.content == null ? "" : m.content;
+            } else {
+                idx[0] = messages.size();
+                messages.add(new ChatMessage(ChatMessage.ASSISTANT, ""));
+                stats.add("");
+                adapter.notifyDataSetChanged();
+                scrollToBottom();
+            }
+        });
+        final int aiIndex = idx[0];
+        final String prefix = pre[0];
+
+        final CountDownLatch latch = new CountDownLatch(1);
+        final String[] out = {null};
+        final boolean[] failed = {false};
+
+        engine.generate(new ArrayList<>(ctx), params, new LlamaEngine.StreamListener() {
             @Override
             public void onToken(String piece) {
                 if (!alive || aiIndex >= messages.size()) return;
@@ -497,39 +652,170 @@ public class ChatActivity extends AppCompatActivity {
             @Override
             public void onDone(String fullText, int tokens, long elapsedMs, long prefillMs,
                                double tokensPerSec) {
-                if (!alive) return;
-                stopping = false;
-                if (aiIndex >= messages.size()) {
-                    setGenerating(false);
-                    return;
+                out[0] = fullText == null ? "" : fullText;
+                if (aiIndex < stats.size()) {
+                    stats.set(aiIndex, getString(R.string.chat_stat,
+                            prefillMs / 1000.0, tokensPerSec, tokens));
+                    adapter.notifyItemChanged(aiIndex);
                 }
-                ChatMessage m = messages.get(aiIndex);
-                if (!TextUtils.isEmpty(fullText)) m.content = fullText;
-                if (TextUtils.isEmpty(m.content)) m.content = getString(R.string.chat_stopped);
-                stats.set(aiIndex, getString(R.string.chat_stat,
-                        prefillMs / 1000.0, tokensPerSec, tokens));
-                adapter.notifyItemChanged(aiIndex);
-                setGenerating(false);
-                updateCtx();
-                pendingWebContext = null;
-                persist();
-                scrollToBottom();
-                autoSaveFiles(m.content);
+                latch.countDown();
             }
 
             @Override
             public void onError(String message) {
-                if (!alive) return;
-                stopping = false;
+                failed[0] = true;
                 if (aiIndex < messages.size()) {
-                    ChatMessage m = messages.get(aiIndex);
-                    m.content = getString(R.string.chat_load_failed, message);
+                    messages.get(aiIndex).content = getString(R.string.chat_load_failed, message);
                     adapter.notifyItemChanged(aiIndex);
                 }
-                setGenerating(false);
-                updateCtx();
+                latch.countDown();
             }
-        };
+        });
+
+        try {
+            if (!latch.await(10, TimeUnit.MINUTES)) return null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        }
+        if (failed[0] || !alive) return null;
+        return new Gen(out[0], aiIndex, prefix);
+    }
+
+    /**
+     * 落定这一轮助手气泡的正文。keepEmpty=false 且没有可见正文时（整轮只有工具调用）
+     * 就把空气泡删掉，界面上只留下工具卡片。
+     */
+    private void applyAssistantText(final int index, final String text, final boolean keepEmpty) {
+        uiSync(() -> {
+            if (index < 0 || index >= messages.size()) return;
+            if (TextUtils.isEmpty(text) && !keepEmpty) {
+                messages.remove(index);
+                if (index < stats.size()) stats.remove(index);
+            } else {
+                ChatMessage m = messages.get(index);
+                m.content = TextUtils.isEmpty(text) ? getString(R.string.chat_stopped) : text;
+            }
+            adapter.notifyDataSetChanged();
+        });
+    }
+
+    private void finishTurn() {
+        uiSync(() -> {
+            setGenerating(false);
+            stopping = false;
+            pendingWebContext = null;
+            updateCtx();
+            scrollToBottom();
+            persist();
+        });
+    }
+
+    private int addToolCard(final ToolCall c) {
+        final int[] index = {-1};
+        uiSync(() -> {
+            messages.add(ChatMessage.tool(toolTitle(c.name), toolKind(c.name),
+                    getString(R.string.agent_running)));
+            stats.add("");
+            index[0] = messages.size() - 1;
+            adapter.notifyDataSetChanged();
+            scrollToBottom();
+        });
+        return index[0];
+    }
+
+    private void updateToolCard(final int index, final String body) {
+        uiSync(() -> {
+            if (index < 0 || index >= messages.size()) return;
+            messages.get(index).content = body;
+            adapter.notifyItemChanged(index);
+            scrollToBottom();
+            persist();
+        });
+    }
+
+    private static String toolTitle(String name) {
+        switch (name) {
+            case "shell": return "终端命令";
+            case "web_search": return "联网搜索";
+            case "fetch_url": return "读取网页";
+            case "read_file": return "读取文件";
+            case "write_file": return "写入文件";
+            case "list_files": return "文件列表";
+            case "delete_file": return "删除文件";
+            case "open_preview": return "网页预览";
+            default: return name;
+        }
+    }
+
+    private static String toolKind(String name) {
+        switch (name) {
+            case "shell": return "shell";
+            case "web_search": case "fetch_url": return "search";
+            case "read_file": case "write_file": case "list_files":
+            case "delete_file": return "file";
+            default: return "info";
+        }
+    }
+
+    /** 在界面线程执行一段修改；不在界面线程时阻塞到执行完，保证消息下标一致。 */
+    private void uiSync(Runnable r) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            r.run();
+            return;
+        }
+        if (!alive) return;
+        final CountDownLatch latch = new CountDownLatch(1);
+        ui.post(() -> {
+            try {
+                r.run();
+            } finally {
+                latch.countDown();
+            }
+        });
+        try {
+            latch.await(5, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /** 会改动本机状态的操作（命令 / 写文件 / 删除）先征求用户同意。 */
+    private boolean confirmTool(final ToolCall c) {
+        final CountDownLatch latch = new CountDownLatch(1);
+        final boolean[] ok = {false};
+        ui.post(() -> {
+            if (!alive) {
+                latch.countDown();
+                return;
+            }
+            try {
+                new MaterialAlertDialogBuilder(this)
+                        .setTitle(getString(R.string.agent_confirm_title, toolTitle(c.name)))
+                        .setMessage(AgentTools.summary(c))
+                        .setCancelable(false)
+                        .setPositiveButton(R.string.agent_allow, (d, w) -> {
+                            ok[0] = true;
+                            latch.countDown();
+                        })
+                        .setNegativeButton(R.string.agent_deny, (d, w) -> latch.countDown())
+                        .setNeutralButton(R.string.agent_allow_all, (d, w) -> {
+                            allowAllWrites = true;
+                            ok[0] = true;
+                            latch.countDown();
+                        })
+                        .show();
+            } catch (Exception e) {
+                latch.countDown();
+            }
+        });
+        try {
+            if (!latch.await(10, TimeUnit.MINUTES)) return false;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+        return ok[0];
     }
 
     private void setGenerating(boolean b) {
@@ -574,14 +860,14 @@ public class ChatActivity extends AppCompatActivity {
                 return;
             case "web": {
                 if ("on".equalsIgnoreCase(rest) || "off".equalsIgnoreCase(rest)) {
-                    webSearchOn = "on".equalsIgnoreCase(rest);
+                    toolWeb = "on".equalsIgnoreCase(rest);
                 } else {
-                    webSearchOn = !webSearchOn;
+                    toolWeb = !toolWeb;
                 }
-                prefs.edit().putBoolean(KEY_WEB, webSearchOn).apply();
+                prefs.edit().putBoolean(KEY_TOOL_WEB, toolWeb).apply();
                 updateChipWeb();
                 addTool(getString(R.string.chat_tool_info), "info",
-                        getString(webSearchOn ? R.string.chat_web_on : R.string.chat_web_off));
+                        getString(toolWeb ? R.string.chat_web_on : R.string.chat_web_off));
                 return;
             }
             case "search": {
@@ -616,23 +902,39 @@ public class ChatActivity extends AppCompatActivity {
                 return;
             }
             default:
-                runShell(body);   // 直接 /ls、/cat x、/write f text 等
+                runShell(body);   // 直接 /ls、/cat x、/grep foo *.txt 等，走真 shell
         }
     }
 
-    private void runShell(String cmd) {
+    /** 斜杠命令 /run、/ls 等：在本机终端执行，结果落到一张工具卡片上（后台跑，不卡界面）。 */
+    private void runShell(final String cmd) {
         if (cmd.isEmpty()) {
             addTool(getString(R.string.chat_tool_error), "error", getString(R.string.chat_slash_tip));
             return;
         }
-        Terminal.Out out = terminal.run(cmd);
-        if (out.text != null && out.text.startsWith("\f")) return;
-        String text = out.text == null || out.text.isEmpty() ? "（无输出）" : out.text;
-        if (out.code != 0) {
-            addTool(getString(R.string.chat_tool_error), "error", "$ " + cmd + "\n" + text);
-        } else {
-            addTool(getString(R.string.chat_tool_shell), "shell", "$ " + cmd + "\n" + text);
-        }
+        final int card = messages.size();
+        messages.add(ChatMessage.tool(getString(R.string.chat_tool_shell), "shell",
+                getString(R.string.agent_running)));
+        stats.add("");
+        adapter.notifyDataSetChanged();
+        scrollToBottom();
+
+        tools.execute(() -> {
+            final Shell.Out out = shell.run(cmd);
+            final String text = out.text == null || out.text.isEmpty() ? "（无输出）" : out.text;
+            ui.post(() -> {
+                if (!alive || card >= messages.size()) return;
+                ChatMessage m = messages.get(card);
+                if (out.code != 0) {
+                    m.title = getString(R.string.chat_tool_error);
+                    m.kind = "error";
+                }
+                m.content = "$ " + cmd + "\n" + text;
+                adapter.notifyItemChanged(card);
+                scrollToBottom();
+                persist();
+            });
+        });
     }
 
     private void addTool(String title, String kind, String body) {
@@ -791,7 +1093,7 @@ public class ChatActivity extends AppCompatActivity {
             return;
         }
         if (TextUtils.isEmpty(messages.get(pos).content)) return;
-        startGeneration();
+        startTurn(pos);        // 追加到同一条气泡，接着往下写
     }
 
     private void showToolMenu(final int pos) {
@@ -836,7 +1138,7 @@ public class ChatActivity extends AppCompatActivity {
                     if (text.isEmpty()) return;
                     messages.get(pos).content = text;
                     trimAfter(pos);       // 该消息之后的内容作废，重新生成
-                    startGeneration();
+                    startTurn(-1);
                 })
                 .show();
     }
@@ -851,7 +1153,7 @@ public class ChatActivity extends AppCompatActivity {
         }
         if (userIdx < 0) return;           // 没有对应的用户消息，不处理
         trimAfter(userIdx);
-        startGeneration();
+        startTurn(-1);
     }
 
     private void deleteMessage(int pos) {
@@ -923,7 +1225,11 @@ public class ChatActivity extends AppCompatActivity {
     }
 
     private void newChat() {
-        if (generating) engine.cancel();
+        if (generating) {
+            turnCancelled = true;
+            engine.cancel();
+        }
+        allowAllWrites = false;                      // 新会话重新逐次确认
         persist();                                   // 先存当前会话
         openSession(store.create(model.localPath));  // 再开新会话
         adapter.notifyDataSetChanged();
@@ -1079,10 +1385,12 @@ public class ChatActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         alive = false;
+        turnCancelled = true;
         if (generating) engine.cancel();
         persist();
         ui.removeCallbacksAndMessages(null);
         tools.shutdownNow();
+        agentExec.shutdownNow();
         super.onDestroy();
     }
 

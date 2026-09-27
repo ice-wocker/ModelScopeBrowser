@@ -19,20 +19,27 @@ import com.mscope.browser.Ui;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
- * 本机终端：在应用私有工作区内执行受限命令。
- * 命令解释由 {@link Terminal} 完成，运行环境就是「本机」（手机上的应用工作区）。
+ * 本机终端：直接执行 /system/bin/sh 命令（真 shell），工作目录固定在应用工作区。
+ *
+ * <p>命令在后台线程执行，输出回到界面；受 Android 沙箱限制，只能访问应用私有目录，
+ * 无需 root、也不需要任何权限。
  */
 public class TerminalActivity extends AppCompatActivity {
 
-    private Terminal terminal;
+    private Shell shell;
+    private final ExecutorService exec = Executors.newSingleThreadExecutor();
+
     private TextView out;
     private EditText input;
     private ScrollView scroll;
     private final SpannableStringBuilder buffer = new SpannableStringBuilder();
     private final List<String> history = new ArrayList<>();
     private int historyPos = 0;
+    private volatile boolean running;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -41,7 +48,7 @@ public class TerminalActivity extends AppCompatActivity {
         Ui.edgeToEdge(this, findViewById(R.id.termRoot));
 
         Workspace ws = new Workspace(this);
-        terminal = new Terminal(ws);
+        shell = new Shell(ws);
 
         out = findViewById(R.id.tvTermOut);
         input = findViewById(R.id.etTerm);
@@ -68,6 +75,7 @@ public class TerminalActivity extends AppCompatActivity {
     }
 
     private void runInput() {
+        if (running) return;
         String cmd = input.getText().toString().trim();
         if (cmd.isEmpty()) return;
         input.setText("");
@@ -76,16 +84,24 @@ public class TerminalActivity extends AppCompatActivity {
         }
         historyPos = history.size();
 
-        appendLine("$ " + cmd, R.color.terminal_prompt);
-        Terminal.Out result = terminal.run(cmd);
-        if (result.text != null && result.text.startsWith("\f")) {   // clear
+        if ("clear".equals(cmd) || "cls".equals(cmd)) {     // 清屏交给界面，避免输出一堆转义符
             buffer.clear();
             setText();
             return;
         }
-        if (result.text != null && !result.text.isEmpty()) {
-            appendLine(result.text, result.code == 0 ? R.color.terminal_fg : R.color.terminal_err);
-        }
+
+        appendLine("$ " + cmd, R.color.terminal_prompt);
+        running = true;
+        exec.execute(() -> {
+            final Shell.Out r = shell.run(cmd);
+            runOnUiThread(() -> {
+                running = false;
+                if (isFinishing() || isDestroyed()) return;
+                if (r.text != null && !r.text.isEmpty()) {
+                    appendLine(r.text, r.code == 0 ? R.color.terminal_fg : R.color.terminal_err);
+                }
+            });
+        });
     }
 
     private void recallPrev() {
@@ -115,5 +131,11 @@ public class TerminalActivity extends AppCompatActivity {
     private void setText() {
         out.setText(buffer);
         scroll.post(() -> scroll.fullScroll(android.view.View.FOCUS_DOWN));
+    }
+
+    @Override
+    protected void onDestroy() {
+        exec.shutdownNow();
+        super.onDestroy();
     }
 }

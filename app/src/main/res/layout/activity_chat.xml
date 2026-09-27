@@ -78,9 +78,27 @@
             android:paddingBottom="8dp">
 
             <TextView
+                android:id="@+id/chipAgent"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_chip"
+                android:drawableStart="@drawable/ic_smart_toy"
+                android:drawablePadding="6dp"
+                android:drawableTint="@color/chip_icon"
+                android:gravity="center_vertical"
+                android:paddingStart="12dp"
+                android:paddingTop="7dp"
+                android:paddingEnd="14dp"
+                android:paddingBottom="7dp"
+                android:text="@string/chat_agent"
+                android:textColor="@color/chip_text"
+                android:textSize="13sp" />
+
+            <TextView
                 android:id="@+id/chipWeb"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
                 android:background="@drawable/bg_chip"
                 android:drawableStart="@drawable/ic_globe"
                 android:drawablePadding="6dp"
