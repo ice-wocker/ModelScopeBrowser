@@ -12,8 +12,8 @@ android {
         applicationId "com.mscope.browser"
         minSdk 24
         targetSdk 36
-        versionCode 9
-        versionName "2.3.0"
+        versionCode 10
+        versionName "2.3.1"
 
         ndk {
             // 只打包真机常见 ABI，控制 APK 体积与编译时间
@@ -66,7 +66,10 @@ android {
 
     packaging {
         jniLibs {
-            useLegacyPackaging = false
+            // 必须把 .so 释放到 nativeLibraryDir：arm64 的多档指令集后端（libggml-cpu-*.so）
+            // 是运行时按路径 dlopen 的（ggml_backend_load_all_from_path），而 extractNativeLibs=false
+            // 时这些文件只存在于 APK 内、磁盘上没有，会导致一个后端都注册不上、模型加载失败。
+            useLegacyPackaging = true
         }
     }
 

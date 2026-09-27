@@ -234,7 +234,7 @@ public class LlamaEngine {
                 ui.post(() -> listener.onLoaded(h != 0,
                         h != 0
                                 ? "已加载：" + model.displayName() + "（" + decodeT + "/" + batchT + " 线程）"
-                                : "模型加载失败（文件可能不完整或格式不受支持）"));
+                                : loadFailureMessage()));
             } catch (Throwable t) {
                 Log.e(TAG, "加载异常", t);
                 loading = false;
@@ -247,6 +247,16 @@ public class LlamaEngine {
 
     public void unload() {
         worker.execute(this::closeHandle);
+    }
+
+    /** 取原生的具体失败原因；取不到时退回通用文案。 */
+    private static String loadFailureMessage() {
+        try {
+            String e = LlamaBridge.nativeLastError();
+            if (e != null && !e.trim().isEmpty()) return e.trim();
+        } catch (Throwable ignored) {
+        }
+        return "模型加载失败（文件可能不完整或格式不受支持）";
     }
 
     private void closeHandle() {

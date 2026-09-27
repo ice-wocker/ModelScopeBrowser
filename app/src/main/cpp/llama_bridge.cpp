@@ -119,6 +119,9 @@ std::unordered_set<Session *> g_sessions;
 /// 应用私有 native 库目录。多档指令集后端是独立 .so，必须从这里显式加载。
 std::string g_backend_dir;
 
+/// 最近一次加载失败的原因，供上层展示（否则所有失败都只能显示一句笼统提示）。
+std::string g_last_error;
+
 /// 取出句柄对应的会话并加锁；句柄已失效时返回 nullptr（此时不会解引用）。
 Session *acquire(jlong handle, std::unique_lock<std::mutex> &lock) {
     auto *s = reinterpret_cast<Session *>(handle);
@@ -251,6 +254,12 @@ Java_com_mscope_browser_llama_LlamaBridge_nativeSupported(JNIEnv *env, jclass) {
     return env->NewStringUTF("");
 }
 
+/** 最近一次 nativeInit 失败的原因；无失败时为空串。 */
+JNIEXPORT jstring JNICALL
+Java_com_mscope_browser_llama_LlamaBridge_nativeLastError(JNIEnv *env, jclass) {
+    return env->NewStringUTF(g_last_error.c_str());
+}
+
 /** 当前实际使用的 CPU 后端描述（如 CPU 型号），用于界面展示。 */
 JNIEXPORT jstring JNICALL
 Java_com_mscope_browser_llama_LlamaBridge_nativeBackendInfo(JNIEnv *env, jclass) {
@@ -267,8 +276,15 @@ Java_com_mscope_browser_llama_LlamaBridge_nativeInit(
         jstring jBackendDir) {
     g_backend_dir = toStd(env, jBackendDir);
     backendInitOnce();
+    g_last_error.clear();
+    const size_t nreg = ggml_backend_reg_count();
+    LOGI("后端注册数=%zu, native 库目录=%s", nreg, g_backend_dir.c_str());
+
     const std::string path = toStd(env, jPath);
-    if (path.empty()) return 0;
+    if (path.empty()) {
+        g_last_error = "模型路径为空";
+        return 0;
+    }
 
     llama_model_params mp = llama_model_default_params();
     mp.n_gpu_layers = 0;   // 纯 CPU 推理，避免各机型 GPU 后端差异
@@ -276,6 +292,10 @@ Java_com_mscope_browser_llama_LlamaBridge_nativeInit(
 
     llama_model *model = llama_model_load_from_file(path.c_str(), mp);
     if (model == nullptr) {
+        // 区分「后端没起来」与「文件本身有问题」，便于用户判断是装包问题还是模型问题
+        g_last_error = nreg == 0
+                ? "本地推理后端未注册（native 库没有释放到 nativeLibraryDir，或该机型指令集不受支持）"
+                : "模型文件无法加载（格式不受支持，或文件不完整 / 下载未完成）";
         LOGE("模型加载失败: %s", path.c_str());
         return 0;
     }
@@ -287,19 +307,40 @@ Java_com_mscope_browser_llama_LlamaBridge_nativeInit(
     cp.n_threads       = nThreads;        // 解码：只用大核，降低每 token 延迟
     cp.n_threads_batch = nThreadsBatch;   // 预填充：吞吐型任务，可用满核心
     cp.no_perf         = true;
-    // KV 缓存量化为 q8_0：注意力读写的数据量减半，解码阶段受内存带宽限制时收益明显，
-    // 同时把长上下文的 KV 占用压到约 1/2，让默认 8192 上下文不至于撑爆内存。
-    cp.type_k          = GGML_TYPE_Q8_0;
-    cp.type_v          = GGML_TYPE_Q8_0;
-    // 让 llama.cpp 自行判断该模型是否支持 FlashAttention（支持的模型减少注意力读写）
-    cp.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_AUTO;
 
-    llama_context *ctx = llama_init_from_model(model, cp);
+    // KV 量化(q8_0) 与 FlashAttention 能显著减少注意力的内存读写，但并非所有模型/后端都支持。
+    // 逐个降级尝试，避免因其中一项不被支持就让整个加载失败。
+    struct KvProfile {
+        ggml_type             k;
+        ggml_type             v;
+        llama_flash_attn_type fa;
+        const char           *name;
+    };
+    const KvProfile profiles[] = {
+        { GGML_TYPE_Q8_0, GGML_TYPE_Q8_0, LLAMA_FLASH_ATTN_TYPE_AUTO,     "q8_0 KV + FA(auto)" },
+        { GGML_TYPE_Q8_0, GGML_TYPE_Q8_0, LLAMA_FLASH_ATTN_TYPE_DISABLED, "q8_0 KV + FA(off)"  },
+        { GGML_TYPE_F16,  GGML_TYPE_F16,  LLAMA_FLASH_ATTN_TYPE_DISABLED, "f16 KV + FA(off)"   },
+    };
+
+    llama_context *ctx = nullptr;
+    const char *usedProfile = "";
+    for (const KvProfile &p : profiles) {
+        cp.type_k          = p.k;
+        cp.type_v          = p.v;
+        cp.flash_attn_type = p.fa;
+        ctx = llama_init_from_model(model, cp);
+        if (ctx != nullptr) {
+            usedProfile = p.name;
+            break;
+        }
+        LOGE("上下文创建失败，降级重试：%s", p.name);
+    }
     if (ctx == nullptr) {
-        LOGE("上下文创建失败");
+        g_last_error = "上下文创建失败（已依次尝试 KV 量化与 FlashAttention 的组合，通常是可用内存不足）";
         llama_model_free(model);
         return 0;
     }
+    LOGI("上下文参数: %s", usedProfile);
 
     auto *s = new Session();
     s->model   = model;

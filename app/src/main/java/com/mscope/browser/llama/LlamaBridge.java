@@ -21,6 +21,9 @@ public final class LlamaBridge {
     /** 当前使用的 CPU 后端描述（CPU 型号），用于界面展示；未初始化时返回空串。 */
     public static native String nativeBackendInfo();
 
+    /** 最近一次 nativeInit 失败的具体原因；无失败时为空串。 */
+    public static native String nativeLastError();
+
     /**
      * 加载模型。
      *
