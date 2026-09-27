@@ -530,12 +530,16 @@ Java_com_mscope_browser_llama_LlamaBridge_nativeGenerate(
         const llama_token id = llama_sampler_sample(smpl, s->ctx, -1);
         if (llama_vocab_is_eog(s->vocab, id)) break;
 
+        // special=true：MiniCPM5 这类模型把 <function>/<param> 工具标签做成了「特殊 token」，
+        // llama_token_to_piece 传 false 时会直接返回空串把它们丢掉，工具调用就退化成
+        // 残缺的 `name="web_search">` 文本，上层再也解析不出来。EOG 已在上面拦掉，这里放开无害。
+        constexpr bool kRenderSpecial = true;
         int32_t np = llama_token_to_piece(s->vocab, id, piece.data(),
-                                          static_cast<int32_t>(piece.size()), 0, false);
+                                          static_cast<int32_t>(piece.size()), 0, kRenderSpecial);
         if (np < 0) {
             piece.resize(static_cast<size_t>(-np));
             np = llama_token_to_piece(s->vocab, id, piece.data(),
-                                      static_cast<int32_t>(piece.size()), 0, false);
+                                      static_cast<int32_t>(piece.size()), 0, kRenderSpecial);
         }
         if (np > 0 && onToken != nullptr) {
             std::u16string part;

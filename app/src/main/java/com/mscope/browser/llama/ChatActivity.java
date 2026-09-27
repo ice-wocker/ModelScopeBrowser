@@ -531,12 +531,15 @@ public class ChatActivity extends AppCompatActivity {
             final List<ToolCall> calls = agentMode
                     ? ToolCall.parse(gen.text, AgentTools.names())
                     : new ArrayList<>();
-            final String visible = (agentMode
+            // 去掉工具调用片段与思考块，只留能给人看的正文
+            final String visible = ToolCall.stripThinking(agentMode
                     ? ToolCall.strip(gen.text, AgentTools.names())
                     : gen.text).trim();
             final boolean last = calls.isEmpty();
             // 整轮只有工具调用时删掉空气泡；但「继续生成」已有内容的气泡要保留
-            applyAssistantText(gen.index, gen.prefix + visible, last || !gen.prefix.isEmpty());
+            final String shown = (last && visible.isEmpty())
+                    ? getString(R.string.chat_empty_reply) : visible;
+            applyAssistantText(gen.index, gen.prefix + shown, last || !gen.prefix.isEmpty());
 
             if (last) {                                    // 没有工具调用：这就是最终答案
                 if (!TextUtils.isEmpty(visible)) {
@@ -555,7 +558,7 @@ public class ChatActivity extends AppCompatActivity {
                 if (AgentTools.risky(c.name) && !allowAllWrites) ok = confirmTool(c);
                 final String result = ok ? agentTools.exec(c) : getString(R.string.agent_denied);
                 updateToolCard(card, result);
-                ctx.add(new ChatMessage(ChatMessage.USER, toolResultText(c.name, result)));
+                ctx.add(new ChatMessage(ChatMessage.USER, toolResultText(result)));
             }
         }
 
@@ -597,9 +600,12 @@ public class ChatActivity extends AppCompatActivity {
         return sb.toString();
     }
 
-    /** 回灌给模型的工具结果：用 user 角色 + 明确包裹，兼容各家聊天模板。 */
-    private static String toolResultText(String name, String result) {
-        return "<tool_result name=\"" + name + "\">\n" + result + "\n</tool_result>";
+    /**
+     * 回灌给模型的工具结果。用 user 角色 + {@code <tool_response>} 包裹：
+     * 这正是 MiniCPM5 / Qwen 等模板里工具返回的标准写法，兼容性最好。
+     */
+    private static String toolResultText(String result) {
+        return "<tool_response>\n" + result + "\n</tool_response>";
     }
 
     private static class Gen {

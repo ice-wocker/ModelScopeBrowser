@@ -94,6 +94,7 @@
     <string name="chat_load_failed">模型加载失败：%1$s</string>
     <string name="chat_greeting">你好，我是运行在本机的 %1$s。\n所有推理都在你的手机上完成，离线可用、数据不出设备。\n\n智能体模式下我能直接调用工具干活：联网搜索、在手机终端跑命令、读写工作区文件、预览网页（写操作与命令会先找你确认）。\n\n试试让我「看看工作区里有什么」，或「搜索今天的科技新闻并总结」。</string>
     <string name="chat_thinking">正在思考…</string>
+    <string name="chat_empty_reply">（模型没有给出可显示的内容）</string>
     <string name="chat_stopped">（已停止）</string>
     <string name="chat_stat">首字 %1$.1fs · %2$.1f tok/s · 共 %3$d tokens</string>
     <string name="chat_unload">当前已有模型「%1$s」在内存中，切换到「%2$s」需要重新加载，继续吗？</string>
@@ -139,7 +140,7 @@
     <string name="chat_agent_off">智能体已关闭：只做普通对话，不调用工具</string>
     <string name="agent_step">智能体执行中 · 第 %1$d 步</string>
     <string name="agent_running">执行中…</string>
-    <string name="agent_sys_hint">你可以调用工具在手机本机上完成任务。需要实时信息或本机操作时，请只输出下面这种代码块（一次可输出多个表示连续调用）：\n\n```tool\n{"name": "工具名", "arguments": {参数}}\n```\n\n可用工具：\n%1$s\n调用后你会收到一条 &lt;tool_result&gt; 消息（里面是真实执行结果），然后继续作答；不需要工具时直接回答，不要输出代码块。</string>
+    <string name="agent_sys_hint">你可以调用工具在手机本机上完成任务。需要实时信息或本机操作时，直接输出下面这种调用（不要用代码块包裹，一次可以输出多个）：\n\n&lt;function name="工具名"&gt;&lt;param name="参数名"&gt;参数值&lt;/param&gt;&lt;/function&gt;\n\n例如：&lt;function name="web_search"&gt;&lt;param name="query"&gt;今天的科技新闻&lt;/param&gt;&lt;/function&gt;\n\n可用工具：\n%1$s\n调用后会收到一条 &lt;tool_response&gt; 结果（里面是真实执行结果），然后据此继续作答；不需要工具时直接回答，不要输出调用。</string>
     <string name="agent_confirm_title">允许执行「%1$s」？</string>
     <string name="agent_allow">允许</string>
     <string name="agent_deny">拒绝</string>
