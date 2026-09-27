@@ -24,4 +24,11 @@
 
     <color name="divider">#1F000000</color>
     <color name="scrim">#66000000</color>
+
+    <!-- 终端（固定深色，营造命令行质感） -->
+    <color name="terminal_bg">#FF0E1116</color>
+    <color name="terminal_fg">#FFD7DDE8</color>
+    <color name="terminal_prompt">#FF5FE3A1</color>
+    <color name="terminal_err">#FFFF6B6B</color>
+    <color name="terminal_dim">#FF7C8798</color>
 </resources>

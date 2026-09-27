@@ -5,7 +5,7 @@
     android:orientation="horizontal"
     android:paddingStart="12dp"
     android:paddingTop="6dp"
-    android:paddingEnd="48dp"
+    android:paddingEnd="44dp"
     android:paddingBottom="6dp">
 
     <ImageView
@@ -29,7 +29,7 @@
             android:layout_height="wrap_content"
             android:background="@drawable/bg_bubble_ai"
             android:lineSpacingExtra="3dp"
-            android:maxWidth="290dp"
+            android:maxWidth="300dp"
             android:paddingStart="14dp"
             android:paddingTop="10dp"
             android:paddingEnd="14dp"

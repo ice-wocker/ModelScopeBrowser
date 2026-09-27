@@ -2,7 +2,7 @@
 
 一个轻量 Android App，用来浏览[魔搭社区 ModelScope](https://www.modelscope.cn/models)上的**全部大模型**：分页列表、关键字搜索、排序、按维度筛选、模型详情与文件下载，**内置 llama.cpp 引擎，把 .gguf 模型下载到手机后即可直接离线对话**。
 
-当前版本：**v2.1.1**（versionCode 7）
+当前版本：**v2.2.0**（versionCode 8）
 
 ## 功能
 
@@ -13,7 +13,13 @@
 - **列表卡片**：中文名、`命名空间/模型名`、任务类型、下载量、收藏数、许可证、标签、简介
 - **详情页**：基本信息 + **模型文件列表**（含体积、LFS 标记）+ **Markdown 简介渲染**
 - **应用内下载**：`.gguf` 文件点「下载」直接存到本机（应用私有目录，无需存储权限），带进度与取消；支持**断点续传**、下载中**前台服务通知**，进程被杀后再进入应用会自动接着下，完成后校验字节数与 GGUF 魔数
-- **本地对话**：内置 **llama.cpp**，加载 GGUF 后用对话框流式输出，支持停止、新对话、系统提示词与采样参数调节；**长按气泡**可复制 / 重新生成 / 编辑并重发 / 删除本条，可**导出对话**，状态条实时显示上下文用量
+- **本地对话**：内置 **llama.cpp**，加载 GGUF 后用对话框流式输出，支持停止、新对话、系统提示词与采样参数调节；**长按气泡**可复制 / 重新生成 / 编辑并重发 / 删除本条，可**导出对话**，状态条实时显示上下文用量。回复以 **Markdown 渲染**（标题 / 列表 / 表格 / 代码块）
+- **智能体能力**（对话页顶部开关与菜单）：
+  - **联网搜索**：打开「联网」后每次提问先抓取网页结果再让模型作答，并在末尾列出参考来源；也可 `/search 关键词` 直接检索
+  - **工作区文件**：模型输出带文件名的代码块（如 ` ```html filename=index.html `）会**自动保存到应用私有工作区**，可浏览 / 查看 / 分享 / 删除
+  - **本机终端**：内置受限终端，命令直接读写手机上的工作区（`ls` / `cat` / `write` / `mkdir` / `rm` / `mv` / `find` / `tree` / `echo` / `date` / `uname` …），对话里也可用 `/ls`、`/write f 内容`、`/run tree` 等斜杠命令
+  - **HTML 预览**：工作区里的 `.html` 一键用内置 WebView 预览，支持脚本、样式与相对资源，可切桌面版或转系统浏览器打开
+- **大输出**：单次生成长度默认 **1024 tokens**（可调至 8192），默认上下文 **4096**（可调至 16384），长文与代码不再被截断
 - **对话历史**：每个模型可保存多个会话（自动落盘，退出不丢），支持**历史会话切换**与「新对话」，每个模型最多保留最近 50 条
 - **本地模型库**：查看已下载模型、占用空间与剩余空间，一键进入对话或删除
 - **交互**：下拉刷新、加载/空态/错误态与一键重试、Material 3 卡片式列表、**暗色模式自动适配**
@@ -21,11 +27,11 @@
 
 ## 下载安装
 
-- 仓库内：[`dist/ModelScope-Models.apk`](dist/ModelScope-Models.apk)（v2.1.1）
-- 或到 [Releases](../../releases) 下载 `ModelScope-Models-2.1.1.apk`（与 `dist/` 完全一致，正式签名）
-- 历史版本：[`dist/ModelScope-Models-2.0.apk`](dist/ModelScope-Models-2.0.apk)
+- 仓库内：[`dist/ModelScope-Models.apk`](dist/ModelScope-Models.apk)（v2.2.0）
+- 或到 [Releases](../../releases) 下载 `ModelScope-Models-2.2.0.apk`（与 `dist/` 完全一致，正式签名）
+- 历史版本：[`dist/ModelScope-Models-2.1.1.apk`](dist/ModelScope-Models-2.1.1.apk)
 
-> ⚠️ **v2.1 的包不可用，请勿安装**：该版本开启 R8 时漏掉了 JNI 回调方法的 keep 规则，加载任意模型都会失败并报 `no non-static method "...onToken(Ljava/lang/String;)V"`。请使用 **v2.1.1**（`dist/ModelScope-Models-2.1.apk` 已移除）。
+> ⚠️ **v2.1 的包不可用，请勿安装**：该版本开启 R8 时漏掉了 JNI 回调方法的 keep 规则，加载任意模型都会失败并报 `no non-static method "...onToken(Ljava/lang/String;)V"`。该问题已在 **v2.1.1** 修复，请使用 v2.1.1 或更高版本（`dist/ModelScope-Models-2.1.apk` 已移除）。
 
 要求：Android 7.0 (API 24) 及以上。首次安装需允许「安装未知来源应用」。
 
@@ -33,6 +39,40 @@
 >
 > v2.1 开启了 R8 混淆与资源压缩，**安装包从 14 MB 降到约 11 MB**（含 `arm64-v8a` + `armeabi-v7a` 两套原生库）。
 > 建议使用 **arm64 机型 + ≥4 GB 内存**，并优先选择 `Q4_K_M` / `Q4_0` 等量化版本（0.5B~3B 体验最佳）。
+
+## v2.2.0 更新
+
+**对话页升级为「可联网、能建文件、带本机终端」的智能体界面**
+
+### 1. 输出上限放开
+
+- 单次生成长度默认 **256 → 1024 tokens**，可调区间 **4096 → 8192**
+- 默认上下文窗口 **2048 → 4096**，可调上限 **8192 → 16384**
+- 默认系统提示词引导模型用「带文件名的代码块」输出，便于自动落盘
+
+### 2. 联网搜索（开关式）
+
+- 对话页顶部「**联网**」开关；开启后每次提问先检索网页，把结果作为工具卡片展示并注入上下文，再让模型作答
+- 无需任何 API Key：主用 DuckDuckGo 轻量 HTML 结果页，失败自动退回 Bing 网页结果
+- 也可 `/search 关键词` 直接检索后总结
+
+### 3. 工作区与文件
+
+- 新增应用私有工作区 `filesDir/workspace`（[`agent/Workspace.java`](app/src/main/java/com/mscope/browser/agent/Workspace.java)）：路径强制限制在根目录内，写入原子落盘
+- 模型回复里的 ` ```html filename=index.html ` 或任意 html 代码块会**自动保存**并补一张「文件」卡片；同名自动加序号
+- 新增**工作区页**：目录浏览、新建文件/文件夹、查看文本、分享、删除
+- 新增**HTML 预览页**：内置 WebView 本地加载，支持 JS / CSS / 相对资源，可切桌面版 UA 或用系统浏览器打开
+
+### 4. 本机终端
+
+- 新增受限终端（[`agent/Terminal.java`](app/src/main/java/com/mscope/browser/agent/Terminal.java)）：命令**直接在本机工作区内执行**，不调用外部进程、不需要系统权限
+- 支持 `ls / cd / cat / head / wc / write / append / mkdir / rm / mv / cp / find / tree / echo / date / uname / df / clear`
+- 对话页斜杠命令直通同一套解释器：`/ls`、`/cat f`、`/write f 内容`、`/rm f`、`/run tree` …
+
+### 5. 界面
+
+- AI 回复改用 **Markwon** 渲染 Markdown（标题 / 列表 / 引用 / 表格 / 代码块），流式过程中先用纯文本以保证流畅
+- 新增**工具卡片**（联网 / 文件 / 终端 / 提示）与对话页能力栏、快捷示例、输入框左侧「+」工具菜单
 
 ## v2.1.1 更新
 
@@ -172,7 +212,12 @@ v1.0/v1.1 的列表请求一直报 `404 page not found`，根因是我用错了�
         │                   └── 其他文件 → 系统浏览器下载
         │                              └── 在魔搭打开 / 复制链接 / 浏览器打开
         ├── 右上角「对话」图标 → 本地模型库（占用空间 / 删除 / 进入对话）
-        │                              └── 对话页（流式生成 / 历史会话 / 长按消息操作 / 停止 / 参数与系统提示词）
+        │                              └── 对话页（Markdown 流式输出 / 历史会话 / 长按消息操作 / 停止 / 参数与系统提示词）
+        │                                     ├── 顶部「联网」开关 → 先检索网页再作答（工具卡片）
+        │                                     ├── 顶部「工作区」→ 工作区页（浏览 / 新建 / 查看 / 分享 / 删除）
+        │                                     │                     └── 点 .html → 内置 WebView 预览
+        │                                     ├── 顶部「终端」→ 本机工作区终端（ls / cat / write / tree …）
+        │                                     └── 输入 / 开头 → 斜杠命令（/search /ls /write /run /preview …）
         └── 右上角「网页模式」→ 内置 WebView 打开魔搭官网（兜底）
 ```
 
@@ -197,7 +242,7 @@ echo "sdk.dir=/path/to/android-sdk" > local.properties
 
 原生库为静态编译进 `libmscope_llama.so`，两个 ABI 分别产出一份。
 
-release 开启了 **R8 混淆 + 资源压缩**（规则见 [`app/proguard-rules.pro`](app/proguard-rules.pro)），安装包约 **11.6 MB**（`arm64-v8a` + `armeabi-v7a`）。依赖版本集中在 [`gradle/libs.versions.toml`](gradle/libs.versions.toml)。
+release 开启了 **R8 混淆 + 资源压缩**（规则见 [`app/proguard-rules.pro`](app/proguard-rules.pro)），安装包约 **12 MB**（`arm64-v8a` + `armeabi-v7a`）。依赖版本集中在 [`gradle/libs.versions.toml`](gradle/libs.versions.toml)。
 
 **正式签名**：在项目根目录创建 `keystore.properties`（已被 `.gitignore` 排除）：
 
@@ -226,9 +271,16 @@ app/src/main/java/com/mscope/browser/
 ├── llama/
 │   ├── LlamaBridge.java       # native 方法声明（加载 / 生成 / 取消 / 重置）
 │   ├── LlamaEngine.java       # 会话单例：模型常驻、单线程串行生成、线程数选择
-│   ├── ChatActivity.java      # 对话页：流式气泡、历史会话、消息操作、参数与系统提示词
+│   ├── ChatActivity.java      # 对话页：Markdown 流式气泡、工具卡片、联网、斜杠命令、消息操作
 │   ├── ChatStore.java         # 对话历史持久化（chats.json，多会话）
-│   └── ChatMessage.java       # 一条对话消息
+│   └── ChatMessage.java       # 一条对话消息（含 tool 工具消息）
+├── agent/                     # 智能体能力
+│   ├── Workspace.java         # 应用私有工作区文件系统（路径收敛 / 原子写）
+│   ├── WorkspaceActivity.java # 工作区页：浏览 / 新建 / 查看 / 分享 / 删除
+│   ├── HtmlPreviewActivity.java # 生成的 HTML 本地预览（WebView）
+│   ├── Terminal.java          # 受限终端：本机工作区命令解释器
+│   ├── TerminalActivity.java  # 终端页
+│   └── WebSearch.java         # 开关式联网检索（DuckDuckGo → Bing 兜底）
 └── local/
     ├── LocalModel.java        # 本地 GGUF 模型（量化识别 / 体积格式化）
     ├── LocalModelStore.java   # 模型目录与 index.json 索引（原子写）
@@ -295,6 +347,9 @@ gradlew / gradle/wrapper/                # Gradle Wrapper 8.14.5
 - 下载期间会常驻一条前台服务通知；Android 13+ 若未授予通知权限，通知不显示但下载照常进行
 - release 包已开启 R8 混淆，若遇到疑似混淆导致的异常（崩溃栈类名/方法名被改写），可用 `./gradlew assembleDebug` 出的包复现排查
 - 本地推理为纯 CPU，速度取决于机型；超大模型（如 30B+）在手机上不具可用性，建议 0.5B~4B
+- **联网搜索**依赖搜索引擎网页结果（DuckDuckGo / Bing），无 API Key，受其反爬策略影响可能偶发失败；检索结果质量与时效由来源决定
+- **自动保存文件**只对带文件名标注的代码块或 html 代码块生效，避免把随手示例都写进工作区；同名文件自动加序号
+- **终端**为受限解释器，并非真实 shell（Android 非 root 无法运行完整 shell）；命令只能访问应用私有工作区，无法访问系统其它目录
 - 未做登录，因此不展示需要登录权限的模型内容
 
 ## 免责声明

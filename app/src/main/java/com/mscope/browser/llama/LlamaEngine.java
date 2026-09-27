@@ -31,7 +31,8 @@ public class LlamaEngine {
     private static final long UI_FLUSH_MS = 40;
 
     public static class Params {
-        public int maxTokens = 256;
+        /** 单次回复的最大生成长度；长文/代码场景需要足够大，默认直接给到 1024。 */
+        public int maxTokens = 1024;
         public float temp = 0.7f;
         public float topP = 0.9f;
         public int topK = 40;

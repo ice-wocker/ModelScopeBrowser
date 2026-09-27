@@ -164,9 +164,12 @@ public class ChatStore {
                     for (int j = 0; j < ms.length(); j++) {
                         JSONObject mo = ms.optJSONObject(j);
                         if (mo == null) continue;
-                        s.messages.add(new ChatMessage(
+                        ChatMessage m = new ChatMessage(
                                 mo.optString("role", ChatMessage.ASSISTANT),
-                                mo.optString("content", "")));
+                                mo.optString("content", ""));
+                        m.title = mo.optString("title", "");
+                        m.kind = mo.optString("kind", "");
+                        s.messages.add(m);
                     }
                 }
                 JSONArray st = o.optJSONArray("stats");
@@ -224,6 +227,8 @@ public class ChatStore {
                 JSONObject mo = new JSONObject();
                 mo.put("role", m.role);
                 mo.put("content", m.content == null ? "" : m.content);
+                if (m.title != null && !m.title.isEmpty()) mo.put("title", m.title);
+                if (m.kind != null && !m.kind.isEmpty()) mo.put("kind", m.kind);
                 ms.put(mo);
             }
             o.put("messages", ms);

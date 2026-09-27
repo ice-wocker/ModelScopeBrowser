@@ -10,6 +10,14 @@
         android:title="@string/chat_history"
         app:showAsAction="never" />
     <item
+        android:id="@+id/action_workspace"
+        android:title="@string/workspace_title"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_terminal"
+        android:title="@string/term_title"
+        app:showAsAction="never" />
+    <item
         android:id="@+id/action_export"
         android:title="@string/chat_export"
         app:showAsAction="never" />

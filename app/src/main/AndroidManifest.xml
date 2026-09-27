@@ -56,6 +56,38 @@
             android:name=".local.DownloadService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <!-- 智能体：工作区文件管理 -->
+        <activity
+            android:name=".agent.WorkspaceActivity"
+            android:exported="false"
+            android:label="@string/workspace_title" />
+
+        <!-- 智能体：本机工作区终端 -->
+        <activity
+            android:name=".agent.TerminalActivity"
+            android:exported="false"
+            android:label="@string/term_title"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
+        <!-- 智能体：生成的 HTML 本地预览 -->
+        <activity
+            android:name=".agent.HtmlPreviewActivity"
+            android:exported="false"
+            android:label="@string/preview_title"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
+        <!-- 分享工作区文件用 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>

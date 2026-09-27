@@ -91,7 +91,7 @@
     <string name="chat_loading">正在加载模型到内存…</string>
     <string name="chat_loaded">模型已就绪 · 上下文 %1$d tokens</string>
     <string name="chat_load_failed">模型加载失败：%1$s</string>
-    <string name="chat_greeting">你好，我是运行在本机的 %1$s。\n所有推理都在你的手机上完成，离线可用、数据不出设备。有什么可以帮你？</string>
+    <string name="chat_greeting">你好，我是运行在本机的 %1$s。\n所有推理都在你的手机上完成，离线可用、数据不出设备。\n\n我还能：联网搜索（打开上方「联网」）、生成文件并保存到工作区、执行本机终端命令。有什么可以帮你？</string>
     <string name="chat_thinking">正在思考…</string>
     <string name="chat_stopped">（已停止）</string>
     <string name="chat_stat">首字 %1$.1fs · %2$.1f tok/s · 共 %3$d tokens</string>
@@ -121,9 +121,64 @@
     <string name="p_top_p">Top-P</string>
     <string name="p_top_k">Top-K</string>
     <string name="p_ctx">上下文窗口</string>
-    <string name="p_ctx_tip">修改上下文窗口需要重新加载模型，小内存机型建议 2048 或更小。</string>
+    <string name="p_ctx_tip">修改上下文窗口需要重新加载模型。上下文越大越能吃长对话，但内存占用也越高；小内存机型建议 2048 或 4096。</string>
     <string name="p_apply">应用</string>
     <string name="p_reset">恢复默认</string>
 
     <string name="about_msg">魔搭模型库 v%1$s\n\n第三方开源的 ModelScope 浏览客户端：可浏览魔搭全部模型、按任务筛选与排序，查看模型文件，并把 .gguf 模型下载到本地，内置 llama.cpp 引擎直接离线对话。\n\n数据来源：modelscope.cn 公开接口，与魔搭官方无关联。</string>
+
+    <!-- 智能体能力：联网 / 工作区 / 终端 -->
+    <string name="chat_web">联网</string>
+    <string name="chat_web_on">联网已开启：每次提问会先检索网页再作答</string>
+    <string name="chat_web_off">联网已关闭：仅使用本地模型知识</string>
+    <string name="chat_searching">正在联网检索…</string>
+    <string name="chat_tool_search">联网搜索</string>
+    <string name="chat_tool_file">文件</string>
+    <string name="chat_tool_shell">终端</string>
+    <string name="chat_tool_info">提示</string>
+    <string name="chat_tool_error">出错</string>
+    <string name="chat_search_query">检索「%1$s」，命中 %2$d 条结果</string>
+    <string name="chat_search_empty">没有检索到结果</string>
+    <string name="chat_search_failed">联网检索失败：%1$s</string>
+    <string name="chat_web_context">以下是与问题相关的实时联网检索结果，请优先依据这些资料作答，并在回答末尾用「参考来源」列出用到的链接：</string>
+    <string name="chat_saved_note">已保存到工作区：%1$s</string>
+    <string name="chat_saved_many">已自动保存 %1$d 个文件到工作区</string>
+    <string name="chat_tap_workspace">点此打开工作区</string>
+    <string name="chat_quick_title">试试这些</string>
+    <string name="chat_quick_1">写一个带样式的个人主页 HTML</string>
+    <string name="chat_quick_2">帮我搜索今天的科技新闻并总结</string>
+    <string name="chat_quick_3">用 Python 写一个快速排序并解释</string>
+    <string name="chat_slash_tip">输入 / 可使用命令：/search 搜索、/ls 列目录、/write 写文件、/run 终端命令、/help 全部命令</string>
+    <string name="chat_slash_help">可用命令：\n/search &lt;关键词&gt;  联网检索并总结\n/web on|off        开关联网\n/ls [目录]         列出工作区目录\n/cat &lt;文件&gt;       查看文件\n/write &lt;文件&gt; &lt;内容&gt;  写入文件\n/rm &lt;路径&gt;        删除\n/preview &lt;文件&gt;   预览网页\n/files             打开工作区\n/run &lt;命令&gt;        执行本机终端命令（如 /run tree）\n/help              显示本帮助</string>
+    <string name="chat_cmd_failed">命令执行失败：%1$s</string>
+
+    <string name="workspace_title">工作区</string>
+    <string name="workspace_usage">%1$d 个文件 · 占用 %2$s</string>
+    <string name="workspace_root">根目录</string>
+    <string name="workspace_empty_title">工作区还是空的</string>
+    <string name="workspace_empty_desc">让模型生成网页 / 代码时会自动保存到这里，你也可以在终端里用 write 命令手动创建。点 .html 文件可直接预览。</string>
+    <string name="workspace_preview">预览</string>
+    <string name="workspace_view">查看</string>
+    <string name="workspace_share">分享</string>
+    <string name="workspace_delete">删除</string>
+    <string name="workspace_delete_confirm">删除「%1$s」？删除后无法恢复。</string>
+    <string name="workspace_deleted">已删除 %1$s</string>
+    <string name="workspace_new_file">新建文件</string>
+    <string name="workspace_new_dir">新建文件夹</string>
+    <string name="workspace_name_hint">名称（可含子目录，如 page/index.html）</string>
+    <string name="workspace_name_invalid">名称不能为空，也不能包含 .. 或 \\</string>
+    <string name="workspace_created">已创建 %1$s</string>
+    <string name="workspace_share_failed">分享失败：%1$s</string>
+    <string name="file_size_dir">目录</string>
+    <string name="term_title">终端</string>
+    <string name="term_subtitle">本机环境 · 工作区 %1$s</string>
+    <string name="term_hint">输入命令后回车（help 查看全部）</string>
+    <string name="term_run">执行</string>
+    <string name="term_clear">清屏</string>
+    <string name="term_last">上一条</string>
+    <string name="term_ready">本机终端已就绪，输入 help 查看可用命令。</string>
+    <string name="preview_title">网页预览</string>
+    <string name="preview_open_browser">浏览器打开</string>
+    <string name="preview_reload">刷新</string>
+    <string name="preview_desktop">桌面版</string>
 </resources>

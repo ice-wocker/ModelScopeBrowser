@@ -15,6 +15,8 @@ androidx-recyclerview = { module = "androidx.recyclerview:recyclerview", version
 androidx-swiperefreshlayout = { module = "androidx.swiperefreshlayout:swiperefreshlayout", version.ref = "swiperefresh" }
 material = { module = "com.google.android.material:material", version.ref = "material" }
 markwon = { module = "io.noties.markwon:core", version.ref = "markwon" }
+markwon-tables = { module = "io.noties.markwon:ext-tables", version.ref = "markwon" }
+markwon-strikethrough = { module = "io.noties.markwon:ext-strikethrough", version.ref = "markwon" }
 junit = { module = "junit:junit", version.ref = "junit" }
 
 [plugins]

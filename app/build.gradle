@@ -12,8 +12,8 @@ android {
         applicationId "com.mscope.browser"
         minSdk 24
         targetSdk 36
-        versionCode 7
-        versionName "2.1.1"
+        versionCode 8
+        versionName "2.2.0"
 
         ndk {
             // 只打包真机常见 ABI，控制 APK 体积与编译时间
@@ -95,6 +95,8 @@ dependencies {
     implementation libs.androidx.recyclerview
     implementation libs.androidx.swiperefreshlayout
     implementation libs.markwon
+    implementation libs.markwon.tables
+    implementation libs.markwon.strikethrough
 
     testImplementation libs.junit
 }
