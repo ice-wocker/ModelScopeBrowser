@@ -84,7 +84,13 @@ public class LlamaEngine {
 
     /** 加载模型（会先卸载当前模型）。nCtx 为上下文窗口。 */
     public void load(Context ctx, LocalModel model, int nCtx, LoadListener listener) {
-        if (loading) return;
+        if (loading) {
+            // 直接返回会让调用方一直停在“加载中”，这里显式告知，便于界面重试
+            if (listener != null) {
+                ui.post(() -> listener.onLoaded(false, "已有模型正在加载中，请稍候重试"));
+            }
+            return;
+        }
         loading = true;
         final int threads = Math.max(2, Math.min(6, Runtime.getRuntime().availableProcessors()));
         worker.execute(() -> {
