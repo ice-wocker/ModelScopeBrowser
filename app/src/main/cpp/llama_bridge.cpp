@@ -10,6 +10,7 @@
 #include <cstring>
 #include <mutex>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "llama.h"
@@ -117,6 +118,25 @@ struct Session {
     std::atomic<bool>  cancel{false};
     std::mutex         mu;
 };
+
+/// 存活会话表。nativeFree 会 delete 会话，而 nativeCancel 可能从别的线程并发调用；
+/// 没有这张表就可能「释放后仍写 cancel」→ use-after-free。加锁顺序统一为 g_mu → s->mu。
+std::mutex              g_mu;
+std::unordered_set<Session *> g_sessions;
+
+/// 取出句柄对应的会话并加锁；句柄已失效时返回 nullptr（此时不会解引用）。
+Session *acquire(jlong handle, std::unique_lock<std::mutex> &lock) {
+    auto *s = reinterpret_cast<Session *>(handle);
+    if (s == nullptr) return nullptr;
+    g_mu.lock();
+    if (g_sessions.count(s) == 0) {
+        g_mu.unlock();
+        return nullptr;
+    }
+    lock = std::unique_lock<std::mutex>(s->mu);
+    g_mu.unlock();
+    return s;
+}
 
 void backendInitOnce() {
     static std::once_flag once;
@@ -278,6 +298,11 @@ Java_com_mscope_browser_llama_LlamaBridge_nativeInit(
     const char *tmpl = llama_model_chat_template(model, nullptr);
     if (tmpl != nullptr) s->tmpl = tmpl;
 
+    {
+        std::lock_guard<std::mutex> lock(g_mu);
+        g_sessions.insert(s);
+    }
+
     LOGI("模型已加载, n_ctx=%d, ctx_train=%d, threads=%d/%d",
          s->n_ctx, llama_model_n_ctx_train(model), nThreads, nThreadsBatch);
     return reinterpret_cast<jlong>(s);
@@ -288,21 +313,21 @@ Java_com_mscope_browser_llama_LlamaBridge_nativeFree(JNIEnv *, jclass, jlong han
     auto *s = reinterpret_cast<Session *>(handle);
     if (s == nullptr) return;
     {
-        std::lock_guard<std::mutex> lock(s->mu);
-        llama_batch_free(s->batch);
-        if (s->ctx)   llama_free(s->ctx);
-        if (s->model) llama_model_free(s->model);
-        s->ctx   = nullptr;
-        s->model = nullptr;
+        std::lock_guard<std::mutex> lock(g_mu);
+        if (g_sessions.erase(s) == 0) return;   // 已释放或非法句柄，避免二次释放
     }
+    std::lock_guard<std::mutex> lock(s->mu);
+    llama_batch_free(s->batch);
+    if (s->ctx)   llama_free(s->ctx);
+    if (s->model) llama_model_free(s->model);
     delete s;
 }
 
 JNIEXPORT void JNICALL
 Java_com_mscope_browser_llama_LlamaBridge_nativeReset(JNIEnv *, jclass, jlong handle) {
-    auto *s = reinterpret_cast<Session *>(handle);
-    if (s == nullptr || s->ctx == nullptr) return;
-    std::lock_guard<std::mutex> lock(s->mu);
+    std::unique_lock<std::mutex> lock;
+    Session *s = acquire(handle, lock);
+    if (s == nullptr) return;
     llama_memory_clear(s->mem, true);
     s->kv.clear();     // 新对话：缓存一并作废
 }
@@ -310,19 +335,24 @@ Java_com_mscope_browser_llama_LlamaBridge_nativeReset(JNIEnv *, jclass, jlong ha
 JNIEXPORT void JNICALL
 Java_com_mscope_browser_llama_LlamaBridge_nativeCancel(JNIEnv *, jclass, jlong handle) {
     auto *s = reinterpret_cast<Session *>(handle);
-    if (s != nullptr) s->cancel = true;
+    if (s == nullptr) return;
+    // 只置原子标志即可，无需 s->mu；但要先确认会话仍存活，否则会写已释放内存
+    std::lock_guard<std::mutex> lock(g_mu);
+    if (g_sessions.count(s) != 0) s->cancel = true;
 }
 
 JNIEXPORT jint JNICALL
 Java_com_mscope_browser_llama_LlamaBridge_nativeContextSize(JNIEnv *, jclass, jlong handle) {
-    auto *s = reinterpret_cast<Session *>(handle);
+    std::unique_lock<std::mutex> lock;
+    Session *s = acquire(handle, lock);
     return s == nullptr ? 0 : s->n_ctx;
 }
 
 /** 只用来看看当前 KV 里缓存了多少 token（供界面/调优参考）。 */
 JNIEXPORT jint JNICALL
 Java_com_mscope_browser_llama_LlamaBridge_nativeCachedTokens(JNIEnv *, jclass, jlong handle) {
-    auto *s = reinterpret_cast<Session *>(handle);
+    std::unique_lock<std::mutex> lock;
+    Session *s = acquire(handle, lock);
     return s == nullptr ? 0 : static_cast<jint>(s->kv.size());
 }
 
@@ -330,7 +360,8 @@ Java_com_mscope_browser_llama_LlamaBridge_nativeCachedTokens(JNIEnv *, jclass, j
 JNIEXPORT jint JNICALL
 Java_com_mscope_browser_llama_LlamaBridge_nativeCountTokens(
         JNIEnv *env, jclass, jlong handle, jstring jText) {
-    auto *s = reinterpret_cast<Session *>(handle);
+    std::unique_lock<std::mutex> lock;
+    Session *s = acquire(handle, lock);
     if (s == nullptr) return 0;
     const std::string text = toStd(env, jText);
     if (text.empty()) return 0;
@@ -342,7 +373,8 @@ Java_com_mscope_browser_llama_LlamaBridge_nativeCountTokens(
 JNIEXPORT jstring JNICALL
 Java_com_mscope_browser_llama_LlamaBridge_nativeBuildPrompt(
         JNIEnv *env, jclass, jlong handle, jobjectArray jRoles, jobjectArray jContents) {
-    auto *s = reinterpret_cast<Session *>(handle);
+    std::unique_lock<std::mutex> lock;
+    Session *s = acquire(handle, lock);
     if (s == nullptr) return env->NewStringUTF("");
     const std::string prompt = buildPrompt(s, env, jRoles, jContents, nullptr);
     return toJString(env, std::u16string(prompt.begin(), prompt.end()));
@@ -356,10 +388,9 @@ JNIEXPORT jstring JNICALL
 Java_com_mscope_browser_llama_LlamaBridge_nativeGenerate(
         JNIEnv *env, jclass, jlong handle, jobjectArray jRoles, jobjectArray jContents,
         jint maxTokens, jfloat temp, jfloat topP, jint topK, jint seed, jobject callback) {
-    auto *s = reinterpret_cast<Session *>(handle);
+    std::unique_lock<std::mutex> lock;
+    Session *s = acquire(handle, lock);
     if (s == nullptr || s->ctx == nullptr) return env->NewStringUTF("");
-
-    std::lock_guard<std::mutex> lock(s->mu);
     s->cancel = false;
 
     // ---- 1. 对话模板 + 分词 ----

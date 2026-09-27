@@ -9,7 +9,6 @@ import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 
 import java.util.List;
-import java.util.Locale;
 
 /** 模型列表适配器。 */
 public class ModelAdapter extends RecyclerView.Adapter<ModelAdapter.VH> {
@@ -41,8 +40,8 @@ public class ModelAdapter extends RecyclerView.Adapter<ModelAdapter.VH> {
 
         StringBuilder sb = new StringBuilder();
         if (!m.task.isEmpty()) sb.append(m.task);
-        sb.append("  ↓ ").append(formatCount(m.downloads));
-        if (m.stars > 0) sb.append("  ★ ").append(formatCount(m.stars));
+        sb.append("  ↓ ").append(Format.count(m.downloads));
+        if (m.stars > 0) sb.append("  ★ ").append(Format.count(m.stars));
         if (!m.license.isEmpty()) sb.append("  · ").append(m.license);
         h.meta.setText(sb.toString());
 
@@ -61,12 +60,6 @@ public class ModelAdapter extends RecyclerView.Adapter<ModelAdapter.VH> {
     @Override
     public int getItemCount() {
         return data.size();
-    }
-
-    public static String formatCount(long n) {
-        if (n >= 100000000L) return String.format(Locale.CHINA, "%.1f亿", n / 100000000.0);
-        if (n >= 10000L) return String.format(Locale.CHINA, "%.1f万", n / 10000.0);
-        return String.valueOf(n);
     }
 
     static class VH extends RecyclerView.ViewHolder {

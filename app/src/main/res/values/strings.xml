@@ -12,6 +12,7 @@
     <string name="load_failed">加载失败：%1$s</string>
     <string name="loaded_status">已加载 %1$d / %2$d 个模型%3$s</string>
     <string name="loaded_status_unknown">已加载 %1$d 个模型%2$s</string>
+    <string name="status_cond">（%1$s）</string>
 
     <string name="err_title">加载失败</string>
     <string name="empty_title">没有找到模型</string>
@@ -37,9 +38,15 @@
 
     <string name="detail_gguf_tip">.gguf 文件可点「下载」保存到本机，下载完成后直接在应用内离线对话。</string>
     <string name="detail_intro">模型简介</string>
+    <string name="detail_meta">下载 %1$s   ★ %2$s</string>
+    <string name="detail_license">许可 %1$s</string>
+    <string name="detail_task">任务类型：%1$s</string>
+    <string name="detail_time">创建 %1$s    更新 %2$s</string>
+    <string name="detail_desc_failed">加载失败：%1$s（点按重试）</string>
     <string name="files_title">模型文件</string>
     <string name="files_loading">正在读取文件列表…</string>
     <string name="files_empty">未获取到文件列表</string>
+    <string name="files_failed">文件列表加载失败，点按重试</string>
     <string name="file_download">下载</string>
     <string name="file_open">用浏览器下载</string>
 
@@ -57,6 +64,8 @@
     <string name="local_deleted">已删除</string>
     <string name="local_loading">加载中…</string>
     <string name="local_downloading">下载中</string>
+    <string name="local_downloading_pct">下载中 %1$d%%</string>
+    <string name="local_downloading_size">下载中 %1$s</string>
 
     <string name="dl_started">已开始下载：%1$s</string>
     <string name="dl_failed">下载失败：%1$s</string>

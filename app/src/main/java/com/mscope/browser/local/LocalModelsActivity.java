@@ -19,6 +19,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.mscope.browser.Format;
 import com.mscope.browser.MainActivity;
 import com.mscope.browser.R;
 import com.mscope.browser.Ui;
@@ -26,6 +27,8 @@ import com.mscope.browser.llama.ChatActivity;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /** 本地模型库：查看已下载的 GGUF、占用空间，一键进入离线对话或删除。 */
 public class LocalModelsActivity extends AppCompatActivity implements DownloadCenter.Listener {
@@ -41,6 +44,8 @@ public class LocalModelsActivity extends AppCompatActivity implements DownloadCe
     private TextView tvFree;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
+    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private boolean alive = true;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -82,20 +87,37 @@ public class LocalModelsActivity extends AppCompatActivity implements DownloadCe
 
     @Override
     protected void onDestroy() {
-        super.onDestroy();
+        alive = false;
+        ui.removeCallbacksAndMessages(null);
+        executor.shutdownNow();
         downloads.removeListener(this);
+        super.onDestroy();
     }
 
     /* ----------------------------------------------------------------- 数据 */
 
+    /** 读索引/统计空间都是磁盘 IO，放到后台线程，避免模型多时卡主线程。 */
     private void refresh() {
+        executor.execute(() -> {
+            final List<LocalModel> list = store.list();
+            long sum = 0;
+            for (LocalModel m : list) sum += m.size;
+            final long total = sum;
+            final long free = store.freeSpace();
+            ui.post(() -> {
+                if (!alive) return;
+                apply(list, total, free);
+            });
+        });
+    }
+
+    private void apply(List<LocalModel> list, long totalSize, long free) {
         data.clear();
-        data.addAll(store.list());
+        data.addAll(list);
         adapter.notifyDataSetChanged();
 
-        tvUsage.setText(getString(R.string.local_usage, data.size(), sizeText(store.totalSize())));
-        long free = store.freeSpace();
-        tvFree.setText(free >= 0 ? getString(R.string.local_free, sizeText(free)) : "");
+        tvUsage.setText(getString(R.string.local_usage, data.size(), Format.size(totalSize)));
+        tvFree.setText(free >= 0 ? getString(R.string.local_free, Format.size(free)) : "");
         emptyBox.setVisibility(data.isEmpty() ? View.VISIBLE : View.GONE);
         listView.setVisibility(data.isEmpty() ? View.GONE : View.VISIBLE);
 
@@ -104,19 +126,6 @@ public class LocalModelsActivity extends AppCompatActivity implements DownloadCe
             DownloadCenter.Task t = downloads.task(m.localPath);
             if (t != null) adapter.notifyItemChanged(data.indexOf(m));
         }
-    }
-
-    private static String sizeText(long bytes) {
-        if (bytes <= 0) return "0 B";
-        String[] units = {"B", "KB", "MB", "GB", "TB"};
-        double v = bytes;
-        int u = 0;
-        while (v >= 1024 && u < units.length - 1) {
-            v /= 1024;
-            u++;
-        }
-        return (u == 0 ? String.valueOf((long) v)
-                : String.format(java.util.Locale.CHINA, "%.2f", v)) + " " + units[u];
     }
 
     private void confirmDelete(LocalModel m) {
@@ -137,23 +146,27 @@ public class LocalModelsActivity extends AppCompatActivity implements DownloadCe
 
     @Override
     public void onProgress(LocalModel model, long done, long total) {
+        if (!alive) return;
         int idx = indexOf(model.localPath);
         if (idx >= 0) adapter.notifyItemChanged(idx);
     }
 
     @Override
     public void onFinished(LocalModel model) {
+        if (!alive) return;
         refresh();
     }
 
     @Override
     public void onFailed(LocalModel model, String error) {
+        if (!alive) return;
         Toast.makeText(this, getString(R.string.dl_failed, error), Toast.LENGTH_LONG).show();
         refresh();
     }
 
     @Override
     public void onCancelled(LocalModel model) {
+        if (!alive) return;
         Toast.makeText(this, R.string.dl_cancelled, Toast.LENGTH_SHORT).show();
         refresh();
     }
@@ -195,8 +208,8 @@ public class LocalModelsActivity extends AppCompatActivity implements DownloadCe
             if (t != null) {
                 int pct = t.percent();
                 h.size.setText(pct >= 0
-                        ? "下载中 " + pct + "%"
-                        : "下载中 " + sizeText(t.done));
+                        ? getString(R.string.local_downloading_pct, pct)
+                        : getString(R.string.local_downloading_size, Format.size(t.done)));
                 h.progress.setVisibility(View.VISIBLE);
                 if (pct >= 0) h.progress.setProgress(pct, true);
                 h.chat.setEnabled(false);

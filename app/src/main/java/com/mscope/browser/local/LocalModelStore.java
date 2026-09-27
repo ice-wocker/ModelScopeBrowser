@@ -113,8 +113,11 @@ public class LocalModelStore {
     private JSONArray readIndex() {
         File f = indexFile();
         if (!f.exists()) return new JSONArray();
+        final long len = f.length();
+        // 索引不可能这么大；异常值（损坏/被截断）直接当空，避免 int 溢出或 OOM
+        if (len <= 0 || len > 8L * 1024 * 1024) return new JSONArray();
         try (java.io.FileInputStream in = new java.io.FileInputStream(f)) {
-            byte[] buf = new byte[(int) f.length()];
+            byte[] buf = new byte[(int) len];
             int read = in.read(buf);
             if (read <= 0) return new JSONArray();
             return new JSONArray(new String(buf, 0, read, StandardCharsets.UTF_8));
@@ -140,8 +143,24 @@ public class LocalModelStore {
             }
             arr.put(o);
         }
-        try (FileOutputStream out = new FileOutputStream(indexFile())) {
-            out.write(arr.toString().getBytes(StandardCharsets.UTF_8));
+        final byte[] bytes = arr.toString().getBytes(StandardCharsets.UTF_8);
+        final File dst = indexFile();
+        final File tmp = new File(dir, INDEX + ".tmp");
+        // 先写临时文件再原子改名：中途崩溃也不会留下半截索引（否则本地模型会「全部消失」）
+        try (FileOutputStream out = new FileOutputStream(tmp)) {
+            out.write(bytes);
+            out.flush();
+        } catch (Exception e) {
+            Log.w(TAG, "写入索引（临时文件）失败", e);
+            return;
+        }
+        if (tmp.renameTo(dst)) return;
+        // 个别文件系统不支持覆盖式改名，退回「删除后改名」，最后才直接覆盖写
+        //noinspection ResultOfMethodCallIgnored
+        dst.delete();
+        if (tmp.renameTo(dst)) return;
+        try (FileOutputStream out = new FileOutputStream(dst)) {
+            out.write(bytes);
         } catch (Exception e) {
             Log.w(TAG, "写入索引失败", e);
         }

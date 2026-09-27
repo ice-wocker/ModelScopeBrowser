@@ -1,5 +1,7 @@
 package com.mscope.browser.local;
 
+import com.mscope.browser.Format;
+
 /** 一个已下载到本机的 GGUF 模型。 */
 public class LocalModel {
 
@@ -36,14 +38,6 @@ public class LocalModel {
     }
 
     public String sizeText() {
-        if (size <= 0) return "-";
-        String[] units = {"B", "KB", "MB", "GB", "TB"};
-        double v = size;
-        int u = 0;
-        while (v >= 1024 && u < units.length - 1) {
-            v /= 1024;
-            u++;
-        }
-        return (u == 0 ? String.valueOf((long) v) : String.format(java.util.Locale.CHINA, "%.2f", v)) + " " + units[u];
+        return Format.sizeOrDash(size);
     }
 }

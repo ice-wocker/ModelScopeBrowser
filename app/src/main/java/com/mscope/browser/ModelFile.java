@@ -18,14 +18,6 @@ public class ModelFile {
     }
 
     public String sizeText() {
-        if (size <= 0) return "-";
-        String[] units = {"B", "KB", "MB", "GB", "TB"};
-        double v = size;
-        int u = 0;
-        while (v >= 1024 && u < units.length - 1) {
-            v /= 1024;
-            u++;
-        }
-        return (u == 0 ? String.valueOf((long) v) : String.format(java.util.Locale.CHINA, "%.1f", v)) + " " + units[u];
+        return Format.sizeOrDash(size);
     }
 }

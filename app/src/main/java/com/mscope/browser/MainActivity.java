@@ -15,6 +15,7 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
@@ -57,6 +58,7 @@ public class MainActivity extends AppCompatActivity {
 
     private final ExecutorService executor = Executors.newFixedThreadPool(3);
     private final Handler ui = new Handler(Looper.getMainLooper());
+    private boolean alive = true;
 
     // ---- 分页与请求状态 ----
     private boolean loading = false;
@@ -204,10 +206,48 @@ public class MainActivity extends AppCompatActivity {
         executor.execute(() -> {
             final ModelApi.Page result = ModelApi.listModels(reqPage, PAGE_SIZE, kw, sb, od, fc, fv);
             ui.post(() -> {
-                if (seq != reqSeq) return;   // 过期响应，直接丢弃
+                if (!alive || seq != reqSeq) return;   // 页面已销毁 / 过期响应，直接丢弃
                 applyResult(result, reqPage, reset);
             });
         });
+    }
+
+    /** 用 DiffUtil 增量提交，避免翻页时整表重绑并保住滚动位置与动画。 */
+    private void submitItems(List<ModelItem> incoming, boolean reset) {
+        final List<ModelItem> old = new ArrayList<>(items);
+        final List<ModelItem> next = new ArrayList<>();
+        if (!reset) next.addAll(old);
+        next.addAll(incoming);
+
+        DiffUtil.DiffResult diff = DiffUtil.calculateDiff(new DiffUtil.Callback() {
+            @Override
+            public int getOldListSize() {
+                return old.size();
+            }
+
+            @Override
+            public int getNewListSize() {
+                return next.size();
+            }
+
+            @Override
+            public boolean areItemsTheSame(int o, int n) {
+                return old.get(o).fullName().equals(next.get(n).fullName());
+            }
+
+            @Override
+            public boolean areContentsTheSame(int o, int n) {
+                ModelItem a = old.get(o), b = next.get(n);
+                return a.downloads == b.downloads && a.stars == b.stars
+                        && a.displayName().equals(b.displayName())
+                        && a.license.equals(b.license) && a.task.equals(b.task)
+                        && a.tags.equals(b.tags) && a.description.equals(b.description);
+            }
+        });
+
+        items.clear();
+        items.addAll(next);
+        diff.dispatchUpdatesTo(adapter);
     }
 
     private void applyResult(ModelApi.Page r, int page, boolean reset) {
@@ -222,10 +262,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         if (r.items.isEmpty()) {
-            if (reset) {
-                items.clear();
-                adapter.notifyDataSetChanged();
-            }
+            if (reset) submitItems(java.util.Collections.emptyList(), true);
             if (r.error != null && !r.error.isEmpty()) {
                 if (items.isEmpty()) {
                     showState(true, getString(R.string.err_title), r.error, getString(R.string.retry));
@@ -244,9 +281,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         showState(false, null, null, null);
-        if (reset) items.clear();
-        items.addAll(r.items);
-        adapter.notifyDataSetChanged();
+        submitItems(r.items, reset);
 
         nextPage = page + 1;
         if (!r.fallback) {
@@ -257,8 +292,8 @@ public class MainActivity extends AppCompatActivity {
         if (!r.filterApplied) Toast.makeText(this, R.string.filter_fallback, Toast.LENGTH_SHORT).show();
 
         StringBuilder cond = new StringBuilder();
-        if (!keyword.isEmpty()) cond.append("（").append(keyword).append("）");
-        if (!filterLabel.isEmpty()) cond.append("（").append(filterLabel).append("）");
+        if (!keyword.isEmpty()) cond.append(getString(R.string.status_cond, keyword));
+        if (!filterLabel.isEmpty()) cond.append(getString(R.string.status_cond, filterLabel));
 
         tvStatus.setText(r.total > 0
                 ? getString(R.string.loaded_status, items.size(), r.total, cond.toString())
@@ -371,7 +406,9 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
-        super.onDestroy();
+        alive = false;
+        ui.removeCallbacksAndMessages(null);
         executor.shutdownNow();
+        super.onDestroy();
     }
 }

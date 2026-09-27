@@ -47,6 +47,7 @@ public class DetailActivity extends AppCompatActivity implements DownloadCenter.
 
     private final ExecutorService executor = Executors.newFixedThreadPool(2);
     private final Handler ui = new Handler(Looper.getMainLooper());
+    private boolean alive = true;
 
     private String owner;
     private String name;
@@ -148,11 +149,19 @@ public class DetailActivity extends AppCompatActivity implements DownloadCenter.
         executor.execute(() -> {
             try {
                 final ModelItem m = ModelApi.getModelDetail(owner, name);
-                ui.post(() -> render(m));
+                ui.post(() -> {
+                    if (!alive) return;
+                    render(m);
+                });
             } catch (final Exception e) {
                 ui.post(() -> {
+                    if (!alive) return;
                     progress.setVisibility(View.GONE);
-                    tvDesc.setText(getString(R.string.load_failed, String.valueOf(e.getMessage())));
+                    tvDesc.setText(getString(R.string.detail_desc_failed, String.valueOf(e.getMessage())));
+                    tvDesc.setOnClickListener(v -> {
+                        tvDesc.setOnClickListener(null);
+                        loadDetail();
+                    });
                 });
             }
         });
@@ -163,36 +172,45 @@ public class DetailActivity extends AppCompatActivity implements DownloadCenter.
             try {
                 final List<ModelFile> list = ModelApi.listFiles(owner, name);
                 ui.post(() -> {
+                    if (!alive) return;
                     files.clear();
                     files.addAll(list);
                     fileAdapter.notifyDataSetChanged();
+                    tvFilesStatus.setOnClickListener(null);
                     tvFilesStatus.setText(list.isEmpty()
                             ? getString(R.string.files_empty)
                             : getString(R.string.files_title) + " · " + list.size());
                 });
             } catch (final Exception e) {
-                ui.post(() -> tvFilesStatus.setText(getString(R.string.files_empty)));
+                ui.post(() -> {
+                    if (!alive) return;
+                    tvFilesStatus.setText(R.string.files_failed);
+                    tvFilesStatus.setOnClickListener(v -> {
+                        tvFilesStatus.setOnClickListener(null);
+                        loadFiles();
+                    });
+                });
             }
         });
     }
 
     private void render(ModelItem m) {
         progress.setVisibility(View.GONE);
+        tvDesc.setOnClickListener(null);   // 清掉失败态遗留的「点按重试」
         tvTitle.setText(m.displayName());
         tvOwner.setText(m.fullName());
 
-        tvMeta.setText("下载 " + ModelAdapter.formatCount(m.downloads)
-                + "   ★ " + ModelAdapter.formatCount(m.stars)
-                + (m.license.isEmpty() ? "" : "   许可 " + m.license));
+        tvMeta.setText(getString(R.string.detail_meta, Format.count(m.downloads), Format.count(m.stars))
+                + (m.license.isEmpty() ? "" : "   " + getString(R.string.detail_license, m.license)));
 
         if (m.task.isEmpty()) {
             tvTask.setVisibility(View.GONE);
         } else {
             tvTask.setVisibility(View.VISIBLE);
-            tvTask.setText("任务类型：" + m.task);
+            tvTask.setText(getString(R.string.detail_task, m.task));
         }
 
-        tvTime.setText("创建 " + m.createdText() + "    更新 " + m.updatedText());
+        tvTime.setText(getString(R.string.detail_time, m.createdText(), m.updatedText()));
 
         String desc = m.description == null ? "" : m.description.trim();
         if (desc.isEmpty() && !m.tags.isEmpty()) desc = m.tags;
@@ -258,11 +276,13 @@ public class DetailActivity extends AppCompatActivity implements DownloadCenter.
 
     @Override
     public void onProgress(LocalModel model, long done, long total) {
+        if (!alive) return;
         notifyFile(model);
     }
 
     @Override
     public void onFinished(LocalModel model) {
+        if (!alive) return;
         notifyFile(model);
         if (!model.repoOwner.equals(owner) || !model.repoName.equals(name)) return;
         new MaterialAlertDialogBuilder(this)
@@ -276,12 +296,14 @@ public class DetailActivity extends AppCompatActivity implements DownloadCenter.
 
     @Override
     public void onFailed(LocalModel model, String error) {
+        if (!alive) return;
         notifyFile(model);
         Toast.makeText(this, getString(R.string.dl_failed, error), Toast.LENGTH_LONG).show();
     }
 
     @Override
     public void onCancelled(LocalModel model) {
+        if (!alive) return;
         notifyFile(model);
         Toast.makeText(this, R.string.dl_cancelled, Toast.LENGTH_SHORT).show();
     }
@@ -377,8 +399,10 @@ public class DetailActivity extends AppCompatActivity implements DownloadCenter.
 
     @Override
     protected void onDestroy() {
-        super.onDestroy();
+        alive = false;
+        ui.removeCallbacksAndMessages(null);
         downloads.removeListener(this);
         executor.shutdownNow();
+        super.onDestroy();
     }
 }
