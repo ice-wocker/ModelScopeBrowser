@@ -1,7 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- 品牌主色：魔搭橙 -->
     <color name="brand">#FF5A2D</color>
-    <color name="brand_dark">#C63F17</color>
+    <color name="brand_dark">#D8410F</color>
+    <color name="brand_deep">#A62E08</color>
+    <color name="brand_light">#FF8F66</color>
+
+    <!-- 辅助色：青绿，用于成功/下载/对话状态 -->
+    <color name="accent">#00A98F</color>
+    <color name="accent_dark">#007D69</color>
+
     <color name="white">#FFFFFFFF</color>
     <color name="black">#FF000000</color>
+
+    <color name="white_90">#E6FFFFFF</color>
+    <color name="white_70">#B3FFFFFF</color>
+    <color name="black_60">#99000000</color>
+
+    <!-- 对话气泡 -->
+    <color name="bubble_user">#FF5A2D</color>
+    <color name="bubble_ai_light">#F3F4F7</color>
+    <color name="bubble_ai_dark">#2A2D33</color>
+
+    <color name="divider">#1F000000</color>
+    <color name="scrim">#66000000</color>
 </resources>

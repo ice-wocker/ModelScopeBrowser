@@ -128,6 +128,10 @@ public class MainActivity extends AppCompatActivity {
 
     private boolean onMenu(MenuItem item) {
         int id = item.getItemId();
+        if (id == R.id.action_local) {
+            startActivity(new Intent(this, com.mscope.browser.local.LocalModelsActivity.class));
+            return true;
+        }
         if (id == R.id.action_web) {
             Intent it = new Intent(this, WebActivity.class);
             it.putExtra(WebActivity.EXTRA_URL, ModelApi.BASE + "/models");
@@ -153,7 +157,7 @@ public class MainActivity extends AppCompatActivity {
         try {
             return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
         } catch (Exception e) {
-            return "1.2";
+            return "2.0";
         }
     }
 

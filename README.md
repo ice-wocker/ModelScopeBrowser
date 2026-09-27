@@ -1,8 +1,8 @@
 # 魔搭模型库 (ModelScopeBrowser)
 
-一个轻量 Android App，用来浏览[魔搭社区 ModelScope](https://www.modelscope.cn/models)上的**全部大模型**：分页列表、关键字搜索、排序、按维度筛选、模型详情与文件下载，并内置网页兜底模式。
+一个轻量 Android App，用来浏览[魔搭社区 ModelScope](https://www.modelscope.cn/models)上的**全部大模型**：分页列表、关键字搜索、排序、按维度筛选、模型详情与文件下载，**内置 llama.cpp 引擎，把 .gguf 模型下载到手机后即可直接离线对话**。
 
-当前版本：**v1.2**（versionCode 3）
+当前版本：**v2.0**（versionCode 5）
 
 ## 功能
 
@@ -11,7 +11,10 @@
 - **排序**：综合排序 / 最多下载 / 最多收藏 / 最近更新
 - **维度筛选**：按 **许可证 / 框架库 / 标签 / 语言 / 模型结构 / 领域** 过滤，取值与数量实时来自接口聚合
 - **列表卡片**：中文名、`命名空间/模型名`、任务类型、下载量、收藏数、许可证、标签、简介
-- **详情页**：基本信息 + **模型文件列表**（含体积、LFS 标记，可单个下载）+ **Markdown 简介渲染**
+- **详情页**：基本信息 + **模型文件列表**（含体积、LFS 标记）+ **Markdown 简介渲染**
+- **应用内下载**：`.gguf` 文件点「下载」直接存到本机（应用私有目录，无需存储权限），带进度与取消
+- **本地对话**：内置 **llama.cpp**，加载 GGUF 后用对话框流式输出，支持停止、新对话、系统提示词与采样参数调节
+- **本地模型库**：查看已下载模型、占用空间与剩余空间，一键进入对话或删除
 - **交互**：下拉刷新、加载/空态/错误态与一键重试、Material 3 卡片式列表、**暗色模式自动适配**
 - **网页模式**：右上角一键进入，直接加载 `modelscope.cn/models`，作为任何异常情况下的兜底
 
@@ -21,6 +24,33 @@
 - 或到 [Releases](../../releases) 下载
 
 要求：Android 7.0 (API 24) 及以上。首次安装需允许「安装未知来源应用」。
+
+> APK 内含 `arm64-v8a` 与 `armeabi-v7a` 两个架构的 llama.cpp 原生库，体积约 14 MB。
+> 建议使用 **arm64 机型 + ≥4 GB 内存**，并优先选择 `Q4_K_M` / `Q4_0` 等量化版本（0.5B~3B 体验最佳）。
+
+## v2.0 更新
+
+**内置 llama.cpp，下载完就能对话**
+
+| 项 | v1.2 | v2.0 |
+|---|---|---|
+| 推理能力 | 无 | **llama.cpp b11205（JNI + CMake，纯 CPU 推理）** |
+| 文件下载 | 只是跳系统浏览器 | **应用内下载 GGUF**，进度 / 取消 / 完成提醒 |
+| 对话 | 无 | **流式对话**：逐 token 上屏、可中断、可新建，temperature / top-p / top-k / 上下文可调 |
+| 本地模型 | 无 | **本地模型库**：占用空间、剩余空间、删除、一键进入对话 |
+| 界面 | 卡片列表 | 渐变头部、圆角卡片、**对话气泡**、统一配色与图标 |
+
+实现要点：
+
+- `app/src/main/cpp/llama_bridge.cpp`：JNI 桥接。负责加载 GGUF、套用模型自带 chat template、分词、**上下文超长时丢弃最早历史**、采样器链（top-k / top-p / temp / dist|greedy）、逐 token 流式回调，并支持取消。
+- **UTF-8 分片处理**：token 边界常把中文/emoji 切成半个字符，桥接层按「完整字符」切分后再转 UTF-16，避免乱码。
+- `LlamaEngine`：单例 + 单线程串行生成，保证同一个 llama context 不会被并发访问；模型常驻内存，页面退出不卸载。
+- 原生库按固定 tag `b11205` 构建；本地已有源码时用 `-PllamaCppDir=/path/to/llama.cpp` 加速，CI 则通过 CMake FetchContent 拉取。
+
+**编译时踩到的两个坑**
+
+1. `llama_model_params` 在新版已移除 `use_mmap` / `use_mlock`，改为 `load_mode = LLAMA_LOAD_MODE_MMAP`。
+2. `GGML_LLAMAFILE` 的 sgemm 在 32 位 ARM 上会用到 `vld1q_f16`，NDK clang 编译不过；该实现主要面向 x86，已关闭（`-DGGML_LLAMAFILE=OFF`），ARM 走通用/NEON 路径。
 
 ## v1.2 更新
 
@@ -75,22 +105,32 @@ v1.0/v1.1 的列表请求一直报 `404 page not found`，根因是我用错了�
 ## 界面流程
 
 ```
-启动 → 模型列表（分页 / 搜索 / 排序 / 任务筛选）
-        ├── 点击某一项 → 详情页（文件列表可下载、简介 Markdown 渲染）
-        │                   └── 在魔搭打开 / 复制链接 / 浏览器打开
+启动 → 模型列表（分页 / 搜索 / 排序 / 维度筛选）
+        ├── 点击某一项 → 详情页（文件列表、简介 Markdown 渲染）
+        │                   ├── .gguf → 应用内下载 → 完成弹窗「立即对话」→ 对话页
+        │                   └── 其他文件 → 系统浏览器下载
+        │                              └── 在魔搭打开 / 复制链接 / 浏览器打开
+        ├── 右上角「对话」图标 → 本地模型库（占用空间 / 删除 / 进入对话）
+        │                              └── 对话页（流式生成 / 停止 / 新对话 / 参数与系统提示词）
         └── 右上角「网页模式」→ 内置 WebView 打开魔搭官网（兜底）
 ```
 
 ## 构建
 
 ```bash
-# 环境：JDK 17、Android SDK（platform 36 + build-tools 36）
+# 环境：JDK 17、Android SDK（platform 36 + build-tools 36 + ndk 27.2.12479018 + cmake 3.22.1）
 export JAVA_HOME=/path/to/jdk17
 echo "sdk.dir=/path/to/android-sdk" > local.properties
 
-gradle assembleDebug      # 调试包
-gradle assembleRelease    # 发布包
+# 首次编译需拉取 llama.cpp（约 50 MB）；本地已有源码时可指定路径加速
+gradle assembleDebug   -PllamaCppDir=/path/to/llama.cpp
+gradle assembleRelease -PllamaCppDir=/path/to/llama.cpp
+
+# 不传 -PllamaCppDir 时，CMake 会通过 FetchContent 按 tag b11205 拉取 llama.cpp
+gradle assembleRelease
 ```
+
+原生库为静态编译进 `libmscope_llama.so`，两个 ABI 分别产出一份，整包约 14 MB。
 
 **正式签名**：在项目根目录创建 `keystore.properties`（已被 `.gitignore` 排除）：
 
@@ -107,16 +147,30 @@ keyPassword=******
 
 ```
 app/src/main/java/com/mscope/browser/
-├── MainActivity.java      # 列表页：分页 / 搜索 / 排序 / 任务筛选 / 空错态
-├── ModelAdapter.java      # 列表卡片适配器
-├── DetailActivity.java    # 详情页 + 文件列表适配器
-├── WebActivity.java       # 网页兜底模式
-├── ModelApi.java          # 数据层：请求 + 多级降级 + 宽松 JSON 解析
-├── ModelItem.java         # 模型数据模型
-├── ModelFile.java         # 模型文件数据模型
-└── Ui.java                # edge-to-edge Insets 工具
+├── MainActivity.java          # 列表页：分页 / 搜索 / 排序 / 维度筛选 / 空错态
+├── ModelAdapter.java          # 列表卡片适配器
+├── DetailActivity.java        # 详情页 + 文件列表（GGUF 应用内下载 / 一键对话）
+├── WebActivity.java           # 网页兜底模式
+├── ModelApi.java              # 数据层：请求 + 多级降级 + 宽松 JSON 解析
+├── ModelItem.java             # 模型数据模型
+├── ModelFile.java             # 模型文件数据模型
+├── Ui.java                    # edge-to-edge Insets 工具
+├── llama/
+│   ├── LlamaBridge.java       # native 方法声明（加载 / 生成 / 取消 / 重置）
+│   ├── LlamaEngine.java       # 会话单例：模型常驻、单线程串行生成
+│   ├── ChatActivity.java      # 对话页：流式气泡、停止、新对话、参数与系统提示词
+│   └── ChatMessage.java       # 一条对话消息
+└── local/
+    ├── LocalModel.java        # 本地 GGUF 模型（量化识别 / 体积格式化）
+    ├── LocalModelStore.java   # 模型目录与 index.json 索引
+    ├── DownloadCenter.java    # 应用级下载中心（进度 / 取消 / 失败）
+    └── LocalModelsActivity.java # 本地模型库页
 
-.github/workflows/android.yml   # CI：构建 + 打 Tag 自动发布
+app/src/main/cpp/
+├── CMakeLists.txt             # 编译 llama.cpp 静态库并链接为 libmscope_llama.so
+└── llama_bridge.cpp           # JNI 桥接：模板 / 分词 / 采样 / 流式回调 / UTF-8 分片
+
+.github/workflows/android.yml  # CI：构建 + 打 Tag 自动发布
 ```
 
 ## 接口说明
@@ -160,7 +214,8 @@ app/src/main/java/com/mscope/browser/
 
 - 列表接口必须用 `PUT`，部分企业网关会拦截 PUT，此时会自动降级为首页聚合数据；全部失败可用「网页模式」
 - 筛选维度由接口聚合数据驱动，不含「任务类型」（该条件下服务端无效）
-- 文件「下载」通过系统浏览器打开魔搭原始下载地址，App 内不做断点续传
+- **应用内下载仅支持 `.gguf`**（其他文件仍走系统浏览器），且为单线程串行下载、**不支持断点续传**（进程被杀需重下）
+- 本地推理为纯 CPU，速度取决于机型；超大模型（如 30B+）在手机上不具可用性，建议 0.5B~4B
 - 未做登录，因此不展示需要登录权限的模型内容
 
 ## 免责声明

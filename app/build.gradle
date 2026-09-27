@@ -6,13 +6,35 @@ android {
     namespace 'com.mscope.browser'
     compileSdk 36
     buildToolsVersion = "36.0.0"
+    ndkVersion "27.2.12479018"
 
     defaultConfig {
         applicationId "com.mscope.browser"
         minSdk 24
         targetSdk 36
-        versionCode 3
-        versionName "1.2"
+        versionCode 5
+        versionName "2.0"
+
+        ndk {
+            // 只打包真机常见 ABI，控制 APK 体积与编译时间
+            abiFilters "arm64-v8a", "armeabi-v7a"
+        }
+
+        externalNativeBuild {
+            cmake {
+                // 本地已有 llama.cpp 源码时可用 -PllamaCppDir=/path 加速；
+                // 否则 CMake 会按固定 tag 通过 FetchContent 拉取
+                arguments "-DLLAMA_CPP_DIR=" + (project.findProperty("llamaCppDir") ?: "")
+                cppFlags "-O3"
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path file("src/main/cpp/CMakeLists.txt")
+            version "3.22.1"
+        }
     }
 
     def keystoreProps = rootProject.file("keystore.properties")
@@ -36,8 +58,13 @@ android {
         release {
             minifyEnabled false
             shrinkResources false
-            // 有 keystore.properties 就用正式签名，否则回退到 debug 签名，保证任何环境都能出包
             signingConfig keystoreProps.exists() ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = false
         }
     }
 

@@ -35,10 +35,64 @@
     <string name="btn_refresh">刷新</string>
     <string name="btn_external">浏览器</string>
 
+    <string name="detail_gguf_tip">.gguf 文件可点「下载」保存到本机，下载完成后直接在应用内离线对话。</string>
+    <string name="detail_intro">模型简介</string>
     <string name="files_title">模型文件</string>
     <string name="files_loading">正在读取文件列表…</string>
     <string name="files_empty">未获取到文件列表</string>
     <string name="file_download">下载</string>
     <string name="file_open">用浏览器下载</string>
-    <string name="about_msg">魔搭模型库 v%1$s\n\n第三方开源的 ModelScope 浏览客户端，可浏览魔搭全部模型、按任务筛选与排序，并查看模型文件。\n\n数据来源：modelscope.cn 公开接口，与魔搭官方无关联。</string>
+
+    <!-- 本地模型与对话 -->
+    <string name="local_title">本地模型</string>
+    <string name="local_entry">本地模型 · 对话</string>
+    <string name="local_usage">共 %1$d 个模型 · 占用 %2$s</string>
+    <string name="local_free">可用空间 %1$s</string>
+    <string name="local_empty_title">还没有本地模型</string>
+    <string name="local_empty_desc">在「模型详情 → 模型文件」里找到 .gguf 文件，点「下载」即可离线运行，下载完成后就能直接对话。</string>
+    <string name="local_go_find">去挑选模型</string>
+    <string name="local_chat">对话</string>
+    <string name="local_delete">删除</string>
+    <string name="local_delete_confirm">删除本地模型「%1$s」？文件约 %2$s，删除后需重新下载。</string>
+    <string name="local_deleted">已删除</string>
+    <string name="local_loading">加载中…</string>
+    <string name="local_downloading">下载中</string>
+
+    <string name="dl_started">已开始下载：%1$s</string>
+    <string name="dl_failed">下载失败：%1$s</string>
+    <string name="dl_cancelled">已取消下载</string>
+    <string name="dl_done_title">下载完成</string>
+    <string name="dl_done_msg">模型「%1$s」已保存到本地，现在就开始对话吗？</string>
+    <string name="dl_done_chat">立即对话</string>
+    <string name="dl_done_later">稍后</string>
+    <string name="dl_gguf_only">当前仅支持 .gguf 格式的模型文件在应用内下载并对话</string>
+    <string name="dl_need_wifi">文件较大（%1$s），建议在 Wi-Fi 环境下下载</string>
+
+    <string name="chat_title">对话</string>
+    <string name="chat_hint">输入消息，点右侧按钮发送…</string>
+    <string name="chat_send">发送</string>
+    <string name="chat_stop">停止</string>
+    <string name="chat_new">新对话</string>
+    <string name="chat_params">推理参数</string>
+    <string name="chat_system">系统提示词</string>
+    <string name="chat_loading">正在加载模型到内存…</string>
+    <string name="chat_loaded">模型已就绪 · 上下文 %1$d tokens</string>
+    <string name="chat_load_failed">模型加载失败：%1$s</string>
+    <string name="chat_greeting">你好，我是运行在本机的 %1$s。\n所有推理都在你的手机上完成，离线可用、数据不出设备。有什么可以帮你？</string>
+    <string name="chat_thinking">正在思考…</string>
+    <string name="chat_stopped">（已停止）</string>
+    <string name="chat_stat">%1$d tokens · %2$s</string>
+    <string name="chat_unload">当前已有模型「%1$s」在内存中，切换到「%2$s」需要重新加载，继续吗？</string>
+    <string name="chat_need_model">请先在本地模型页选择一个已下载的模型</string>
+
+    <string name="p_max_tokens">最大生成长度（tokens）</string>
+    <string name="p_temp">随机性 temperature</string>
+    <string name="p_top_p">Top-P</string>
+    <string name="p_top_k">Top-K</string>
+    <string name="p_ctx">上下文窗口</string>
+    <string name="p_ctx_tip">修改上下文窗口需要重新加载模型，小内存机型建议 2048 或更小。</string>
+    <string name="p_apply">应用</string>
+    <string name="p_reset">恢复默认</string>
+
+    <string name="about_msg">魔搭模型库 v%1$s\n\n第三方开源的 ModelScope 浏览客户端：可浏览魔搭全部模型、按任务筛选与排序，查看模型文件，并把 .gguf 模型下载到本地，内置 llama.cpp 引擎直接离线对话。\n\n数据来源：modelscope.cn 公开接口，与魔搭官方无关联。</string>
 </resources>

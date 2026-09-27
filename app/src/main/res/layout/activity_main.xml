@@ -11,8 +11,9 @@
         android:id="@+id/toolbar"
         android:layout_width="match_parent"
         android:layout_height="?attr/actionBarSize"
-        android:background="@color/brand"
+        android:background="@drawable/bg_header_gradient"
         app:menu="@menu/menu_main"
+        app:subtitleTextColor="@color/white_70"
         app:title="@string/app_name"
         app:titleTextColor="@color/white" />
 
@@ -22,7 +23,7 @@
         android:gravity="center_vertical"
         android:orientation="horizontal"
         android:paddingStart="12dp"
-        android:paddingTop="8dp"
+        android:paddingTop="10dp"
         android:paddingEnd="12dp">
 
         <com.google.android.material.textfield.TextInputLayout
@@ -133,10 +134,19 @@
             android:padding="32dp"
             android:visibility="gone">
 
+            <ImageView
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:alpha="0.45"
+                android:contentDescription="@string/app_name"
+                android:src="@drawable/ic_model"
+                app:tint="@color/brand" />
+
             <TextView
                 android:id="@+id/stateTitle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
                 android:textColor="?android:attr/textColorPrimary"
                 android:textSize="17sp"
                 android:textStyle="bold" />

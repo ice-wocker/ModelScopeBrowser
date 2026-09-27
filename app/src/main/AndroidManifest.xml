@@ -32,6 +32,18 @@
             android:exported="false"
             android:label="@string/web_title"
             android:configChanges="orientation|screenSize|keyboardHidden" />
+
+        <activity
+            android:name=".local.LocalModelsActivity"
+            android:exported="false"
+            android:label="@string/local_title" />
+
+        <activity
+            android:name=".llama.ChatActivity"
+            android:exported="false"
+            android:label="@string/chat_title"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
     </application>
 
 </manifest>
