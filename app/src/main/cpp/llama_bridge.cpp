@@ -2,7 +2,6 @@
 // 提供：加载 GGUF 模型、应用对话模板、KV 前缀复用、分块预填充、流式生成、取消、重置。
 #include <jni.h>
 #include <android/log.h>
-#include <sys/auxv.h>
 
 #include <algorithm>
 #include <atomic>
@@ -14,18 +13,11 @@
 #include <vector>
 
 #include "llama.h"
+#include "ggml-backend.h"
 
 #define TAG "MScopeLlama"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
-
-// arm64 上 glibc/bionic 的 HWCAP 位（部分 NDK 头文件未提供，这里兜底定义）
-#ifndef HWCAP_ASIMDHP
-#define HWCAP_ASIMDHP (1UL << 10)   // 半精度 SIMD 运算（fp16 arith）
-#endif
-#ifndef HWCAP_ASIMDDP
-#define HWCAP_ASIMDDP (1UL << 20)   // SIMD 点积（dotprod）
-#endif
 
 namespace {
 
@@ -124,6 +116,9 @@ struct Session {
 std::mutex              g_mu;
 std::unordered_set<Session *> g_sessions;
 
+/// 应用私有 native 库目录。多档指令集后端是独立 .so，必须从这里显式加载。
+std::string g_backend_dir;
+
 /// 取出句柄对应的会话并加锁；句柄已失效时返回 nullptr（此时不会解引用）。
 Session *acquire(jlong handle, std::unique_lock<std::mutex> &lock) {
     auto *s = reinterpret_cast<Session *>(handle);
@@ -140,7 +135,17 @@ Session *acquire(jlong handle, std::unique_lock<std::mutex> &lock) {
 
 void backendInitOnce() {
     static std::once_flag once;
-    std::call_once(once, [] { llama_backend_init(); });
+    std::call_once(once, [] {
+        // arm64 上是多档指令集：各档 CPU 后端以 libggml-cpu-*.so 独立存在，
+        // 必须先把它们从应用的 native 库目录加载进来（ggml 内部会按 HWCAP 打分，
+        // 只装载分数最高的那一档）。否则 ggml 默认只在可执行文件目录找，Android 上必然落空。
+        if (!g_backend_dir.empty()) {
+            ggml_backend_load_all_from_path(g_backend_dir.c_str());
+            LOGI("后端加载目录: %s, 已注册 %zu 个后端",
+                 g_backend_dir.c_str(), ggml_backend_reg_count());
+        }
+        llama_backend_init();
+    });
 }
 
 /// 以显式位置把 tokens[from, to) 解码进 KV；仅当取 logits 时请求最后一位的输出。
@@ -237,26 +242,30 @@ std::string buildPrompt(Session *s, JNIEnv *env,
 extern "C" {
 
 /**
- * 本机 CPU 是否满足当前编译所用的指令集。
- * arm64 构建开启了 dotprod + fp16，老机型缺这些指令会直接 SIGILL，
- * 这里提前用 HWCAP 判断，让上层给出可读提示而不是崩溃。
- * 返回空串表示可用；否则返回原因。
+ * 本机是否可运行。改用多档指令集后，arm64 的基线是 armv8-a，
+ * 任何 arm64 机型都能加载（具体走哪一档由 ggml 在运行时按 HWCAP 选），
+ * 因此这里不再做指令集门槛校验，保留接口返回空串。
  */
 JNIEXPORT jstring JNICALL
 Java_com_mscope_browser_llama_LlamaBridge_nativeSupported(JNIEnv *env, jclass) {
-#if defined(__aarch64__)
-    const unsigned long hw = getauxval(AT_HWCAP);
-    if ((hw & HWCAP_ASIMDDP) == 0 || (hw & HWCAP_ASIMDHP) == 0) {
-        return env->NewStringUTF("当前机型 CPU 不支持 dotprod/fp16 指令（需 2018 年后的 arm64 处理器），"
-                                 "无法在本机运行模型");
-    }
-#endif
     return env->NewStringUTF("");
+}
+
+/** 当前实际使用的 CPU 后端描述（如 CPU 型号），用于界面展示。 */
+JNIEXPORT jstring JNICALL
+Java_com_mscope_browser_llama_LlamaBridge_nativeBackendInfo(JNIEnv *env, jclass) {
+    backendInitOnce();
+    ggml_backend_dev_t dev = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU);
+    if (dev == nullptr) return env->NewStringUTF("");
+    const char *desc = ggml_backend_dev_description(dev);
+    return env->NewStringUTF(desc == nullptr ? "" : desc);
 }
 
 JNIEXPORT jlong JNICALL
 Java_com_mscope_browser_llama_LlamaBridge_nativeInit(
-        JNIEnv *env, jclass, jstring jPath, jint nCtx, jint nThreads, jint nThreadsBatch) {
+        JNIEnv *env, jclass, jstring jPath, jint nCtx, jint nThreads, jint nThreadsBatch,
+        jstring jBackendDir) {
+    g_backend_dir = toStd(env, jBackendDir);
     backendInitOnce();
     const std::string path = toStd(env, jPath);
     if (path.empty()) return 0;
@@ -278,6 +287,12 @@ Java_com_mscope_browser_llama_LlamaBridge_nativeInit(
     cp.n_threads       = nThreads;        // 解码：只用大核，降低每 token 延迟
     cp.n_threads_batch = nThreadsBatch;   // 预填充：吞吐型任务，可用满核心
     cp.no_perf         = true;
+    // KV 缓存量化为 q8_0：注意力读写的数据量减半，解码阶段受内存带宽限制时收益明显，
+    // 同时把长上下文的 KV 占用压到约 1/2，让默认 8192 上下文不至于撑爆内存。
+    cp.type_k          = GGML_TYPE_Q8_0;
+    cp.type_v          = GGML_TYPE_Q8_0;
+    // 让 llama.cpp 自行判断该模型是否支持 FlashAttention（支持的模型减少注意力读写）
+    cp.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_AUTO;
 
     llama_context *ctx = llama_init_from_model(model, cp);
     if (ctx == nullptr) {

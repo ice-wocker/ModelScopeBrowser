@@ -2,7 +2,7 @@
 
 一个轻量 Android App，用来浏览[魔搭社区 ModelScope](https://www.modelscope.cn/models)上的**全部大模型**：分页列表、关键字搜索、排序、按维度筛选、模型详情与文件下载，**内置 llama.cpp 引擎，把 .gguf 模型下载到手机后即可直接离线对话**。
 
-当前版本：**v2.2.0**（versionCode 8）
+当前版本：**v2.3.0**（versionCode 9）
 
 ## 功能
 
@@ -19,7 +19,7 @@
   - **工作区文件**：模型输出带文件名的代码块（如 ` ```html filename=index.html `）会**自动保存到应用私有工作区**，可浏览 / 查看 / 分享 / 删除
   - **本机终端**：内置受限终端，命令直接读写手机上的工作区（`ls` / `cat` / `write` / `mkdir` / `rm` / `mv` / `find` / `tree` / `echo` / `date` / `uname` …），对话里也可用 `/ls`、`/write f 内容`、`/run tree` 等斜杠命令
   - **HTML 预览**：工作区里的 `.html` 一键用内置 WebView 预览，支持脚本、样式与相对资源，可切桌面版或转系统浏览器打开
-- **大输出**：单次生成长度默认 **1024 tokens**（可调至 8192），默认上下文 **4096**（可调至 16384），长文与代码不再被截断
+- **大输出**：单次生成长度默认 **4096 tokens**（可调至 8192），默认上下文 **8192**（可调至 32768）；长按回复可「**继续生成**」，达上限也能接着往下写
 - **对话历史**：每个模型可保存多个会话（自动落盘，退出不丢），支持**历史会话切换**与「新对话」，每个模型最多保留最近 50 条
 - **本地模型库**：查看已下载模型、占用空间与剩余空间，一键进入对话或删除
 - **交互**：下拉刷新、加载/空态/错误态与一键重试、Material 3 卡片式列表、**暗色模式自动适配**
@@ -27,9 +27,9 @@
 
 ## 下载安装
 
-- 仓库内：[`dist/ModelScope-Models.apk`](dist/ModelScope-Models.apk)（v2.2.0）
-- 或到 [Releases](../../releases) 下载 `ModelScope-Models-2.2.0.apk`（与 `dist/` 完全一致，正式签名）
-- 历史版本：[`dist/ModelScope-Models-2.1.1.apk`](dist/ModelScope-Models-2.1.1.apk)
+- 仓库内：[`dist/ModelScope-Models.apk`](dist/ModelScope-Models.apk)（v2.3.0）
+- 或到 [Releases](../../releases) 下载 `ModelScope-Models-2.3.0.apk`（与 `dist/` 完全一致，正式签名）
+- 历史版本：[`dist/ModelScope-Models-2.2.0.apk`](dist/ModelScope-Models-2.2.0.apk)、[`dist/ModelScope-Models-2.1.1.apk`](dist/ModelScope-Models-2.1.1.apk)
 
 > ⚠️ **v2.1 的包不可用，请勿安装**：该版本开启 R8 时漏掉了 JNI 回调方法的 keep 规则，加载任意模型都会失败并报 `no non-static method "...onToken(Ljava/lang/String;)V"`。该问题已在 **v2.1.1** 修复，请使用 v2.1.1 或更高版本（`dist/ModelScope-Models-2.1.apk` 已移除）。
 
@@ -37,8 +37,55 @@
 
 > v1.0 / v1.1 / v2.0 / dist 包均可直接覆盖安装（同一签名）；v1.2 的 Release 包是 CI 未配置签名密钥时的 debug 签名产物，若你装的是它，需先卸载再安装。
 >
-> v2.1 开启了 R8 混淆与资源压缩，**安装包从 14 MB 降到约 11 MB**（含 `arm64-v8a` + `armeabi-v7a` 两套原生库）。
+> v2.1 开启了 R8 混淆与资源压缩；v2.3 起 arm64 采用多档指令集后端，**体积会增大**（多了几份 CPU 后端 `.so`），换来了新芯片上更快的量化矩阵乘。
 > 建议使用 **arm64 机型 + ≥4 GB 内存**，并优先选择 `Q4_K_M` / `Q4_0` 等量化版本（0.5B~3B 体验最佳）。
+
+## v2.3.0 更新
+
+**提速：arm64 多档指令集（运行时自动选档）+ FlashAttention + KV 量化**
+
+### 1. 多档指令集：让新芯片跑更快的量化内核
+
+以前是**单一构建**，固定 `-march=armv8.2-a+dotprod+fp16`：所有 arm64 机型都只能跑这一档，而且缺 dotprod 的老机型会被直接拒绝。
+
+现在改为 llama.cpp 的 `GGML_CPU_ALL_VARIANTS`，为 Android arm64 分别编出多份 CPU 后端：
+
+| 后端 | 指令集 | 典型芯片 |
+|---|---|---|
+| `android_armv8.0_1` | 基线 armv8-a | 所有 arm64（兜底，绝不会 SIGILL） |
+| `android_armv8.2_1/2` | dotprod / +fp16 | 2018 年后的处理器 |
+| `android_armv8.6_1` | **+i8mm** | 骁龙 8 Gen 1+ / 天玑 9000+ / Cortex-X3·A715+ |
+| `android_armv9.0_1` | +SVE2 | 天玑 9200+ 等 |
+| `android_armv9.2_1/2` | +SVE/+SME | 最新旗舰 |
+
+运行时由 ggml 的 `ggml_backend_score()` 按 `HWCAP` 给每档打分，**只加载分数最高的那一档**：支持 i8mm/SVE 的新芯片走更快的量化矩阵乘内核，老芯片自动退回 armv8-a 基线。
+
+- **兼容性反而更好**：基线变成 armv8-a 后，**移除了原先 dotprod+fp16 的硬门槛**，缺指令的老 arm64 不再被拒绝
+- 后端以独立 `.so` 产出，从应用的 native 库目录动态加载（`ggml_backend_load_all_from_path`）
+- `armeabi-v7a`（32 位）仍是单档静态构建，不受影响
+
+产物核对（反汇编各档后端，确认真的编出了不同指令集）：
+
+| 后端 | `sdot`（dotprod） | `smmla`（i8mm） |
+|---|---|---|
+| `android_armv8.0_1` | 0 | 0 |
+| `android_armv8.2_1` | 747 | 0 |
+| `android_armv8.6_1` | 747 | **174** |
+| `android_armv9.0_1` | 802 | **308** |
+
+也就是说：i8mm 机型会真正走 `smmla` 这条 int8 矩阵乘内核，而不是仅仅「编了个变体」。
+
+### 2. FlashAttention + KV 缓存量化
+
+- 上下文开启 `flash_attn_type = AUTO`：模型与后端支持时自动启用，减少注意力读写
+- **KV 缓存量化为 `q8_0`**：注意力阶段的数据读写量减半，长上下文解码更快，KV 内存约为原来的 **1/2**——这也是默认上下文能拉到 8192 的前提
+
+### 3. 输出上限进一步放开
+
+- 单次最长输出默认 **1024 → 4096**（可调上限 8192）
+- 默认上下文 **4096 → 8192**（可调上限 32768）
+- 界面里说清了二者的关系：**输出必须挤在上下文里**（上下文 = 提示词/历史 + 本次输出），所以设置时会自动把输出收敛到上下文之内
+- 新增「**继续生成**」：长按回复即可接着往下写，达到上限也不必重新提问
 
 ## v2.2.0 更新
 
@@ -240,9 +287,9 @@ echo "sdk.dir=/path/to/android-sdk" > local.properties
 ./gradlew lintDebug
 ```
 
-原生库为静态编译进 `libmscope_llama.so`，两个 ABI 分别产出一份。
+原生库：`armeabi-v7a` 为静态编译（单档，全部塞进 `libmscope_llama.so`）；`arm64-v8a` 为动态构建（`libllama.so` / `libggml.so` / `libggml-base.so` + 7 份 `libggml-cpu-android_*.so` 变体）。
 
-release 开启了 **R8 混淆 + 资源压缩**（规则见 [`app/proguard-rules.pro`](app/proguard-rules.pro)），安装包约 **12 MB**（`arm64-v8a` + `armeabi-v7a`）。依赖版本集中在 [`gradle/libs.versions.toml`](gradle/libs.versions.toml)。
+release 开启了 **R8 混淆 + 资源压缩**（规则见 [`app/proguard-rules.pro`](app/proguard-rules.pro)），安装包约 **17 MB**：arm64 侧含 7 份 CPU 后端变体（约 10.7 MB 原生库）+ armeabi-v7a 单档。依赖版本集中在 [`gradle/libs.versions.toml`](gradle/libs.versions.toml)。
 
 **正式签名**：在项目根目录创建 `keystore.properties`（已被 `.gitignore` 排除）：
 
@@ -347,6 +394,9 @@ gradlew / gradle/wrapper/                # Gradle Wrapper 8.14.5
 - 下载期间会常驻一条前台服务通知；Android 13+ 若未授予通知权限，通知不显示但下载照常进行
 - release 包已开启 R8 混淆，若遇到疑似混淆导致的异常（崩溃栈类名/方法名被改写），可用 `./gradlew assembleDebug` 出的包复现排查
 - 本地推理为纯 CPU，速度取决于机型；超大模型（如 30B+）在手机上不具可用性，建议 0.5B~4B
+- **多档指令集只覆盖 arm64**：`armeabi-v7a`（32 位）仍是单档；且各档的实际提速幅度与芯片强相关，i8mm/SVE 机型收益最大，老机型与原来持平
+- **未启用 GPU 卸载**：Vulkan/OpenCL 后端需要 `glslc`（Vulkan SDK）等工具链，构建环境不具备，故仍为纯 CPU 推理。这也意味着「3~5 倍」这类幅度只在支持 i8mm/SVE 的新芯片上才可能接近，老机型拿不到
+- v2.3 起 APK 体积增大（多份 CPU 后端），如果更在意体积可只保留 arm64 或退到 v2.2.0
 - **联网搜索**依赖搜索引擎网页结果（DuckDuckGo / Bing），无 API Key，受其反爬策略影响可能偶发失败；检索结果质量与时效由来源决定
 - **自动保存文件**只对带文件名标注的代码块或 html 代码块生效，避免把随手示例都写进工作区；同名文件自动加序号
 - **终端**为受限解释器，并非真实 shell（Android 非 root 无法运行完整 shell）；命令只能访问应用私有工作区，无法访问系统其它目录

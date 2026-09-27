@@ -90,6 +90,7 @@
     <string name="chat_system">系统提示词</string>
     <string name="chat_loading">正在加载模型到内存…</string>
     <string name="chat_loaded">模型已就绪 · 上下文 %1$d tokens</string>
+    <string name="chat_loaded_backend">模型已就绪 · 上下文 %1$d tokens · %2$s</string>
     <string name="chat_load_failed">模型加载失败：%1$s</string>
     <string name="chat_greeting">你好，我是运行在本机的 %1$s。\n所有推理都在你的手机上完成，离线可用、数据不出设备。\n\n我还能：联网搜索（打开上方「联网」）、生成文件并保存到工作区、执行本机终端命令。有什么可以帮你？</string>
     <string name="chat_thinking">正在思考…</string>
@@ -111,6 +112,8 @@
 
     <string name="msg_copy">复制</string>
     <string name="msg_copied">已复制</string>
+    <string name="msg_continue">继续生成</string>
+    <string name="msg_continue_last">只能续写最后一条回复</string>
     <string name="msg_regenerate">重新生成</string>
     <string name="msg_edit_resend">编辑并重发</string>
     <string name="msg_delete">删除本条</string>
@@ -121,7 +124,7 @@
     <string name="p_top_p">Top-P</string>
     <string name="p_top_k">Top-K</string>
     <string name="p_ctx">上下文窗口</string>
-    <string name="p_ctx_tip">修改上下文窗口需要重新加载模型。上下文越大越能吃长对话，但内存占用也越高；小内存机型建议 2048 或 4096。</string>
+    <string name="p_ctx_tip">输出必须挤在上下文里（上下文 = 提示词/历史 + 本次输出），所以这里给的默认是「上下文 8192 / 最长输出 4096」。上下文越大越能吃长对话，但内存占用也越高（KV 已量化为 q8_0，约为原来的 1/2）；小内存机型建议 4096。</string>
     <string name="p_apply">应用</string>
     <string name="p_reset">恢复默认</string>
 

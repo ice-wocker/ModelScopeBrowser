@@ -15,16 +15,21 @@ public final class LlamaBridge {
         void onToken(String piece);
     }
 
-    /** 本机 CPU 是否满足编译所用指令集；空串表示可用，否则返回不可用原因。 */
+    /** 本机 CPU 是否满足运行条件；现在不做指令集门槛（arm64 多档指令集自动选档），恒返回空串。 */
     public static native String nativeSupported();
+
+    /** 当前使用的 CPU 后端描述（CPU 型号），用于界面展示；未初始化时返回空串。 */
+    public static native String nativeBackendInfo();
 
     /**
      * 加载模型。
      *
-     * @param nThreads      解码线程数（只跑大核，降低每 token 延迟）
-     * @param nThreadsBatch 预填充线程数（吞吐型任务，可用满核心）
+     * @param nThreads       解码线程数（只跑大核，降低每 token 延迟）
+     * @param nThreadsBatch  预填充线程数（吞吐型任务，可用满核心）
+     * @param backendDir     应用 native 库目录，多档指令集后端（libggml-cpu-*.so）从这里动态加载
      */
-    public static native long nativeInit(String modelPath, int nCtx, int nThreads, int nThreadsBatch);
+    public static native long nativeInit(String modelPath, int nCtx, int nThreads, int nThreadsBatch,
+                                         String backendDir);
 
     public static native void nativeFree(long handle);
 

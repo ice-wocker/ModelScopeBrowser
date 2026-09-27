@@ -80,8 +80,9 @@ public class ChatActivity extends AppCompatActivity {
                     + "涉及代码或网页时，请用带文件名的 Markdown 代码块输出，例如 ```html filename=index.html，"
                     + "这样文件会自动保存到用户的工作区。";
 
-    /** 默认上下文窗口；要撑起 1024 的默认输出，2048 不够用。 */
-    private static final int DEFAULT_CTX = 4096;
+    /** 默认上下文窗口。输出上限必须挤在上下文里（上下文 = 提示词/历史 + 本次输出），
+     *  所以想放开输出，上下文也要一起放大；KV 已量化为 q8_0，8192 的占用约为原先一半。 */
+    private static final int DEFAULT_CTX = 8192;
 
     /** 自动保存时识别 ```lang filename 之类的标注。 */
     private static final Pattern FENCE = Pattern.compile("```([^\\n`]*)\\n([\\s\\S]*?)```");
@@ -275,7 +276,7 @@ public class ChatActivity extends AppCompatActivity {
         etInput.setEnabled(false);
         btnSend.setEnabled(false);
 
-        engine.load(model, nCtx, (ok, msg) -> {
+        engine.load(model, nCtx, getApplicationInfo().nativeLibraryDir, (ok, msg) -> {
             if (!alive) return;
             if (ok) {
                 onReady();
@@ -290,7 +291,10 @@ public class ChatActivity extends AppCompatActivity {
     private void onReady() {
         ready = true;
         loadProgress.setVisibility(View.GONE);
-        tvLoadStatus.setText(getString(R.string.chat_loaded, engine.contextSize()));
+        String be = engine.backendInfo();
+        tvLoadStatus.setText(be.isEmpty()
+                ? getString(R.string.chat_loaded, engine.contextSize())
+                : getString(R.string.chat_loaded_backend, engine.contextSize(), be));
         loadBox.setVisibility(View.VISIBLE);
         ui.postDelayed(() -> {
             if (alive && ready) loadBox.setVisibility(View.GONE);
@@ -760,21 +764,34 @@ public class ChatActivity extends AppCompatActivity {
         final String[] actions = user
                 ? new String[]{getString(R.string.msg_copy), getString(R.string.msg_edit_resend),
                                getString(R.string.msg_delete)}
-                : new String[]{getString(R.string.msg_copy), getString(R.string.msg_regenerate),
-                               getString(R.string.msg_delete)};
+                : new String[]{getString(R.string.msg_copy), getString(R.string.msg_continue),
+                               getString(R.string.msg_regenerate), getString(R.string.msg_delete)};
 
         new MaterialAlertDialogBuilder(this)
                 .setItems(actions, (d, which) -> {
                     if (which == 0) {
                         copy(m.content);
-                    } else if (which == 1) {
-                        if (user) editResend(pos);
-                        else regenerate(pos);
+                    } else if (user) {
+                        if (which == 1) editResend(pos);
+                        else deleteMessage(pos);
                     } else {
-                        deleteMessage(pos);
+                        if (which == 1) continueGeneration(pos);
+                        else if (which == 2) regenerate(pos);
+                        else deleteMessage(pos);
                     }
                 })
                 .show();
+    }
+
+    /** 续写：保留已生成的回复，让它接着往下写（输出被 maxTokens 截断时最有用）。 */
+    private void continueGeneration(final int pos) {
+        if (generating || searching) return;
+        if (pos != messages.size() - 1) {
+            Toast.makeText(this, R.string.msg_continue_last, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (TextUtils.isEmpty(messages.get(pos).content)) return;
+        startGeneration();
     }
 
     private void showToolMenu(final int pos) {
@@ -1007,13 +1024,15 @@ public class ChatActivity extends AppCompatActivity {
                     params.temp = clampFloat(etTemp.getText().toString(), params.temp, 0f, 2f);
                     params.topP = clampFloat(etTopP.getText().toString(), params.topP, 0f, 1f);
                     params.topK = clampInt(etTopK.getText().toString(), params.topK, 0, 200);
-                    int ctx = clampInt(etCtx.getText().toString(), nCtx, 512, 16384);
+                    int ctx = clampInt(etCtx.getText().toString(), nCtx, 512, 32768);
                     if (ctx != nCtx) {
                         nCtx = ctx;
                         prefs.edit().putInt(KEY_CTX, nCtx).apply();
                         if (generating) engine.cancel();
                         doLoad();     // 上下文变化需要重建 llama context
                     }
+                    // 输出必须给提示词/历史留出空间：最多占上下文的 3/4
+                    params.maxTokens = Math.min(params.maxTokens, Math.max(256, nCtx * 3 / 4));
                 })
                 .show();
     }

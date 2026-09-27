@@ -14,20 +14,26 @@ set(GGML_OPENMP          OFF CACHE BOOL "" FORCE)
 # llamafile 的 sgemm 在 32 位 ARM 上会用到 vld1q_f16，NDK clang 无法编译；
 # 该实现主要面向 x86，关闭后 ARM 走通用/NEON 路径，功能与精度不受影响。
 set(GGML_LLAMAFILE       OFF CACHE BOOL "" FORCE)
-set(BUILD_SHARED_LIBS    OFF CACHE BOOL "" FORCE)
 
-# ---- arm64-v8a：打开 ARMv8.2 的 dotprod + fp16 ----
-# 交叉编译时 GGML_NATIVE 自动关闭，若不显式指定 -march，则整个构建退化为
-# 基线 armv8-a：而 ggml 的量化矩阵乘 / repack 内核（arch/arm/repack.cpp、
-# quants.c、vec.h 等）全部以 __ARM_FEATURE_DOTPROD 为条件编译 —— 不指定时
-# 这些内核会被整段编译掉，只能走通用路径，这正是此前推理偏慢的主因。
-# dotprod 需要 2018 年后的 arm64 处理器，运行时会在 JNI 层用 HWCAP 校验，
-# 不支持的机型给出明确提示而非直接崩溃。
+# ---- arm64-v8a：多档指令集变体（多档指令集 = 多份 CPU 后端，运行时按芯片选最优）----
+#
+# 以前是单一构建，固定 -march=armv8.2-a+dotprod+fp16：所有机型都只能跑这一档，
+# 而且缺 dotprod 的老 arm64 会被直接拒绝。改成 GGML_CPU_ALL_VARIANTS 后，会为
+# Android 各编一份后端（armv8.0 基线 / 8.2 dotprod+fp16 / 8.6 i8mm / 9.0 SVE2 /
+# 9.2 SVE+SME），每份导出 ggml_backend_score() 在运行时按 HWCAP 打分，ggml 挑
+# 分数最高的那份加载。于是：新芯片（i8mm/SVE）走更快的量化矩阵乘，老芯片退回
+# armv8-a 基线，不会 SIGILL。
+#
+# 该模式要求后端以动态库产出：GGML_BACKEND_DL 依赖 BUILD_SHARED_LIBS。
 if(ANDROID_ABI STREQUAL "arm64-v8a")
-    set(GGML_CPU_ARM_ARCH "armv8.2-a+dotprod+fp16" CACHE STRING "" FORCE)
-    message(STATUS "arm64-v8a: 启用 GGML_CPU_ARM_ARCH=${GGML_CPU_ARM_ARCH}")
+    set(BUILD_SHARED_LIBS     ON CACHE BOOL "" FORCE)
+    set(GGML_BACKEND_DL       ON CACHE BOOL "" FORCE)
+    set(GGML_CPU_ALL_VARIANTS ON CACHE BOOL "" FORCE)
+    # Android 上版本化 SONAME（libllama.so.0）在 APK 里并不存在，会导致 dlopen 失败
+    set(CMAKE_PLATFORM_NO_VERSIONED_SONAME TRUE)
 else()
-    message(STATUS "${ANDROID_ABI}: 使用 NDK 默认指令集")
+    # armeabi-v7a：变体列表只覆盖 arm64，保持单档静态构建
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 endif()
 
 # 本地已有源码时直接用（加快沙箱构建）；否则按固定 tag 拉取，保证可复现
@@ -47,8 +53,5 @@ endif()
 add_library(mscope_llama SHARED llama_bridge.cpp)
 target_link_libraries(mscope_llama PRIVATE llama log)
 
-# 桥接层也用同一套指令集，保证 __ARM_FEATURE_* 宏与实际编译产物一致
-# （ggml 的 ARCH_FLAGS 只作用于 ggml-cpu 目标，不会自动传导到这里）
-if(ANDROID_ABI STREQUAL "arm64-v8a")
-    target_compile_options(mscope_llama PRIVATE -march=armv8.2-a+dotprod+fp16)
-endif()
+# 桥接层只调用 API、不含 SIMD 内核，因此刻意不加 -march：
+# 保持基线 armv8-a，任何 arm64 机型都能加载（具体算力交给上面的变体后端）。

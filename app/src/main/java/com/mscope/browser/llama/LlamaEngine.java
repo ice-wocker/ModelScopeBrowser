@@ -31,8 +31,8 @@ public class LlamaEngine {
     private static final long UI_FLUSH_MS = 40;
 
     public static class Params {
-        /** 单次回复的最大生成长度；长文/代码场景需要足够大，默认直接给到 1024。 */
-        public int maxTokens = 1024;
+        /** 单次回复的最大生成长度。默认给到 4096，长文/代码基本够用。 */
+        public int maxTokens = 4096;
         public float temp = 0.7f;
         public float topP = 0.9f;
         public int topK = 40;
@@ -73,6 +73,8 @@ public class LlamaEngine {
     private volatile LocalModel current;
     private volatile boolean loading;
     private volatile boolean generating;
+    /** 实际使用的 CPU 后端描述（CPU 型号），加载成功后填充，供界面展示。 */
+    private volatile String backend = "";
 
     private LlamaEngine() {
     }
@@ -91,6 +93,11 @@ public class LlamaEngine {
 
     public LocalModel currentModel() {
         return current;
+    }
+
+    /** 当前 CPU 后端描述（CPU 型号）；未加载时返回空串。 */
+    public String backendInfo() {
+        return backend;
     }
 
     public int contextSize() {
@@ -181,8 +188,8 @@ public class LlamaEngine {
 
     /* ------------------------------------------------------------- 模型生命周期 */
 
-    /** 加载模型（会先卸载当前模型）。nCtx 为上下文窗口。 */
-    public void load(LocalModel model, int nCtx, LoadListener listener) {
+    /** 加载模型（会先卸载当前模型）。nCtx 为上下文窗口，backendDir 为应用 native 库目录。 */
+    public void load(LocalModel model, int nCtx, String backendDir, LoadListener listener) {
         if (loading) {
             // 直接返回会让调用方一直停在“加载中”，这里显式告知，便于界面重试
             if (listener != null) {
@@ -210,9 +217,17 @@ public class LlamaEngine {
                     return;
                 }
 
-                long h = LlamaBridge.nativeInit(model.localPath, nCtx, threads[0], threads[1]);
+                long h = LlamaBridge.nativeInit(model.localPath, nCtx, threads[0], threads[1],
+                        backendDir == null ? "" : backendDir);
                 handle = h;
                 current = h != 0 ? model : null;
+                if (h != 0) {
+                    try {
+                        backend = LlamaBridge.nativeBackendInfo();
+                    } catch (Throwable ignored) {
+                        backend = "";
+                    }
+                }
                 loading = false;
                 final int decodeT = threads[0];
                 final int batchT = threads[1];
@@ -238,6 +253,7 @@ public class LlamaEngine {
         long h = handle;
         handle = 0;
         current = null;
+        backend = "";
         if (h != 0) {
             try {
                 LlamaBridge.nativeFree(h);
