@@ -47,6 +47,20 @@
             android:textSize="12sp" />
     </LinearLayout>
 
+    <!-- 上下文用量 / 状态提示 -->
+    <TextView
+        android:id="@+id/tvCtx"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="?attr/colorSurfaceVariant"
+        android:paddingStart="14dp"
+        android:paddingTop="4dp"
+        android:paddingEnd="14dp"
+        android:paddingBottom="4dp"
+        android:textColor="?android:attr/textColorSecondary"
+        android:textSize="11sp"
+        android:visibility="gone" />
+
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"

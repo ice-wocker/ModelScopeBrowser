@@ -93,6 +93,24 @@
     <string name="chat_stat">首字 %1$.1fs · %2$.1f tok/s · 共 %3$d tokens</string>
     <string name="chat_unload">当前已有模型「%1$s」在内存中，切换到「%2$s」需要重新加载，继续吗？</string>
     <string name="chat_need_model">请先在本地模型页选择一个已下载的模型</string>
+    <string name="chat_history">历史会话</string>
+    <string name="chat_export">导出对话</string>
+    <string name="chat_ctx_usage">上下文 %1$d / %2$d tokens</string>
+    <string name="chat_stopping">正在停止…</string>
+    <string name="chat_history_empty">暂无历史会话</string>
+    <string name="chat_history_title">历史会话</string>
+    <string name="chat_session_none">[空会话]</string>
+    <string name="chat_rename">重命名</string>
+    <string name="chat_renamed">已重命名</string>
+    <string name="chat_session_delete">删除该会话？删除后无法恢复。</string>
+    <string name="chat_nothing_export">当前没有可导出的内容</string>
+
+    <string name="msg_copy">复制</string>
+    <string name="msg_copied">已复制</string>
+    <string name="msg_regenerate">重新生成</string>
+    <string name="msg_edit_resend">编辑并重发</string>
+    <string name="msg_delete">删除本条</string>
+    <string name="msg_edit_title">编辑消息</string>
 
     <string name="p_max_tokens">最大生成长度（tokens）</string>
     <string name="p_temp">随机性 temperature</string>

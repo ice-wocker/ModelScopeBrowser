@@ -6,6 +6,14 @@
         android:title="@string/chat_new"
         app:showAsAction="never" />
     <item
+        android:id="@+id/action_history"
+        android:title="@string/chat_history"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_export"
+        android:title="@string/chat_export"
+        app:showAsAction="never" />
+    <item
         android:id="@+id/action_params"
         android:title="@string/chat_params"
         app:showAsAction="never" />
