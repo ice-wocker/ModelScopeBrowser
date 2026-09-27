@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 本地模型动辄数百 MB~数 GB，不参与 Auto Backup，否则备份必然超配额失败 -->
+<full-backup-content>
+    <exclude domain="external" path="models" />
+</full-backup-content>

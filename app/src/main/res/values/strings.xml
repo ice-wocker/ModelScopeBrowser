@@ -76,6 +76,10 @@
     <string name="dl_done_later">稍后</string>
     <string name="dl_gguf_only">当前仅支持 .gguf 格式的模型文件在应用内下载并对话</string>
     <string name="dl_need_wifi">文件较大（%1$s），建议在 Wi-Fi 环境下下载</string>
+    <string name="dl_notif_channel">模型下载</string>
+    <string name="dl_notif_title">正在下载模型</string>
+    <string name="dl_notif_running">正在下载…</string>
+    <string name="dl_notif_progress">%1$s（%2$d%%）</string>
 
     <string name="chat_title">对话</string>
     <string name="chat_hint">输入消息，点右侧按钮发送…</string>

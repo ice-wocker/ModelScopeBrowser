@@ -125,8 +125,18 @@ public class DetailActivity extends AppCompatActivity implements DownloadCenter.
         fileList.setAdapter(fileAdapter);
 
         downloads.addListener(this);
+        requestNotifPermission();
         loadDetail();
         loadFiles();
+    }
+
+    /** Android 13+ 展示下载进度通知需要该权限；拒绝也不影响下载。 */
+    private void requestNotifPermission() {
+        if (android.os.Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 100);
+        }
     }
 
     private boolean onMenu(MenuItem item) {
