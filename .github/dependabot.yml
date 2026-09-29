@@ -1,0 +1,25 @@
+version: 2
+updates:
+  # Gradle 依赖 + Android Gradle Plugin 版本
+  # 这个项目的卖点是「零第三方依赖」，但 AGP 与 JUnit 仍需跟进安全更新，
+  # 而且 dependabot 也能兜住误引入依赖的手滑
+  - package-ecosystem: gradle
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore"
+    labels:
+      - dependencies
+
+  # GitHub Actions 版本（actions/checkout 等也会过期）
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "ci"
+    labels:
+      - dependencies
