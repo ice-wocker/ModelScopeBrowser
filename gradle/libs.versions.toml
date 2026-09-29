@@ -2,7 +2,7 @@
 agp = "8.13.2"
 appcompat = "1.7.0"
 core = "1.15.0"
-material = "1.13.0"
+material = "1.14.0"
 recyclerview = "1.4.0"
 swiperefresh = "1.1.0"
 markwon = "4.6.2"
