@@ -108,11 +108,10 @@
 | 渠道 | 说明 |
 |---|---|
 | **[Releases](https://github.com/ice-wocker/ModelScopeBrowser/releases)** | 推荐。最新 **v2.4.1** `ModelScope-Models-2.4.1.apk`，CI 构建 + 正式签名（约 **8.2 MB**） |
-| 仓库内 `dist/` | 历史版本存档（截至 v2.3.0），与 Release 同一签名 |
 
 - 要求：**Android 7.0 (API 24) 及以上**；首次安装需允许「安装未知来源应用」
 - 建议：**arm64 机型 + ≥4 GB 内存**，模型优先选 `Q4_K_M` / `Q4_0` 量化，**0.5B~3B 体验最佳**
-- 从 v1.0 / v1.1 / v2.0 / `dist/` 均可直接覆盖安装（同一签名）
+- 从 **v1.0 起的任意 Release** 均可直接覆盖安装（同一签名）
 
 > [!WARNING]
 > **请不要安装 v2.1 的包。** 该版本开启 R8 时漏掉了 JNI 回调方法的 keep 规则，加载任意模型都会失败（`no non-static method "...onToken(Ljava/lang/String;)V"`）。已在 v2.1.1 修复，请用 v2.1.1 或更高版本。
@@ -435,7 +434,7 @@ gradlew / gradle/wrapper/                # Gradle Wrapper 8.14.5
 
 未配置时：普通分支 / PR 构建回退 debug 签名（仅作 CI 产物）；但**推送 `v*` 标签发布 Release 时会直接失败并提示补配置**，避免把 debug 签名的包发给用户。
 
-> ⚠️ **务必配置这四个 Secrets**：否则 Release APK 与 `dist/` 的签名不同，用户无法互相覆盖更新（v1.2 就出现过；v2.1 的 Release 包已手工替换为正式签名包）。
+> ⚠️ **务必配置这四个 Secrets**：否则各 Release 之间签名不一致，用户无法互相覆盖更新（v1.2 就出现过；v2.1 的 Release 包已手工替换为正式签名包）。
 
 ---
 
