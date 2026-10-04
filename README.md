@@ -4,6 +4,8 @@
 
 **浏览魔搭全部大模型 · 把 GGUF 下载到手机 · 内置 llama.cpp 离线对话 · 模型可自主调用终端与联网**
 
+*Browse all ModelScope LLMs, download GGUF to your phone, and chat offline with built-in llama.cpp — the model can run shell commands, search the web and work with files.*
+
 [![Release](https://img.shields.io/github/v/release/ice-wocker/ModelScopeBrowser?color=FF5A2D&label=Release)](https://github.com/ice-wocker/ModelScopeBrowser/releases)
 [![CI](https://github.com/ice-wocker/ModelScopeBrowser/actions/workflows/android.yml/badge.svg)](https://github.com/ice-wocker/ModelScopeBrowser/actions/workflows/android.yml)
 [![Stars](https://img.shields.io/github/stars/ice-wocker/ModelScopeBrowser?color=FF5A2D)](https://github.com/ice-wocker/ModelScopeBrowser/stargazers)
@@ -467,25 +469,17 @@ gradlew / gradle/wrapper/                # Gradle Wrapper 8.14.5
     </td>
     <td valign="top">
 
-**昵称**：<!-- TODO: 你的昵称 / 花名 -->
-
-**一句话简介**：<!-- TODO: 例如「Android 开发 / 端侧 AI 爱好者」 -->
+**昵称**：ice-wocker
 
 **正在折腾**：把大模型塞进手机——让离线推理在移动端真正可用，而不是个演示 Demo。
 
 **联系方式**
 
-- 邮箱：<!-- TODO: you@example.com -->
 - GitHub：[@ice-wocker](https://github.com/ice-wocker)
-- 个人主页：<!-- TODO: 你的主页 / 博客链接 -->
-- 其它平台：<!-- TODO: 掘金 / B站 / 公众号 等 -->
 
 <a href="https://github.com/ice-wocker">
   <img src="https://img.shields.io/badge/GitHub-ice--wocker-181717?logo=github" alt="GitHub" />
 </a>
-<!-- TODO: 补上后把下面两条的 href 换成真实链接 -->
-<a href="#"><img src="https://img.shields.io/badge/%E6%8E%98%E9%87%91-%E5%BE%85%E5%A1%AB%E5%86%99-1E80FF" alt="掘金" /></a>
-<a href="#"><img src="https://img.shields.io/badge/Bilibili-%E5%BE%85%E5%A1%AB%E5%86%99-FB7299?logo=bilibili&logoColor=white" alt="Bilibili" /></a>
 
     </td>
   </tr>
@@ -500,3 +494,9 @@ gradlew / gradle/wrapper/                # Gradle Wrapper 8.14.5
 ## 免责声明
 
 本项目为第三方客户端，与魔搭社区 / 阿里巴巴无关联，仅用于学习与技术研究。所有模型数据与内容的版权归原作者及魔搭社区所有，请遵守其服务条款。
+
+---
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=ice-wocker/ModelScopeBrowser&type=Date)](https://www.star-history.com/#ice-wocker/ModelScopeBrowser&Date)
