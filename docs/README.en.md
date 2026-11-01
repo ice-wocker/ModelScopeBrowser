@@ -580,6 +580,23 @@ None of them imports `android.*`, so they are unit-testable on the JVM — 47 ne
 `versionCode 12 → 13`, `versionName 2.4.1 → 2.5.0`. The minor digit jumped because a module layer was
 added.
 
+## 10.5 What v2.6.0 added
+
+v2.6.0 is about language, not features:
+
+- **The whole app is English/Chinese bilingual**, with an in-app switch (About → Language) that calls
+  `recreate()` instead of restarting the process, so a loaded model and a running download survive.
+- **`values/` is now English** and Chinese moved to `values-zh/`; `MissingTranslation` is back on in
+  Lint, turning bilingual support into a build-time constraint.
+- **Copy that cannot reach a `Context`** (prompts, tool docs, tool results, errors) goes through
+  `i18n/Lang`, set at the same moment the resources switch language — there is never a
+  "English UI with Chinese prompts" half-state.
+- **All 10 long-form documents are bilingual**; every page has a language switch at the top.
+- `versionCode 13 → 14`, `versionName 2.5.0 → 2.6.0`.
+
+An honest note: the 21 illustrations still carry Chinese labels. Re-rendering them is redraw work,
+not translation work, and it is tracked separately.
+
 ## 11 Frequently asked questions
 
 **Q: Model loading fails with "backend not registered"?**
