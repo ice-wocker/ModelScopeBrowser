@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.text.Collator;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -60,6 +61,10 @@ public class Workspace {
             return n.endsWith(".html") || n.endsWith(".htm");
         }
     }
+
+    /** Collator 不是线程安全的，每次比较新建代价也高，按线程各留一份。 */
+    private static final ThreadLocal<Collator> COLLATOR =
+            ThreadLocal.withInitial(() -> Collator.getInstance(Locale.getDefault()));
 
     private final File root;
 
@@ -144,9 +149,11 @@ public class Workspace {
                 out.add(new Entry(f.getName(), relOf(f), d, d ? 0 : f.length(), f.lastModified()));
             }
         }
+        // 用 Collator 而不是 compareToIgnoreCase：中文文件名按拼音排（阿→波→词），
+        // 按码点排会得到一堆看似随机的顺序。
         Collections.sort(out, (a, b) -> {
             if (a.dir != b.dir) return a.dir ? -1 : 1;
-            return a.name.compareToIgnoreCase(b.name);
+            return COLLATOR.get().compare(a.name, b.name);
         });
         return out;
     }

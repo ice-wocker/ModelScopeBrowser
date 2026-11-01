@@ -4,6 +4,64 @@
 
 The full history, newest first.
 
+## v2.6.1 — making the documented behaviour actually true
+
+No new features. Every item below was found by comparing what the docs claim with what the code does,
+and each one points at a concrete failure path.
+
+### Data loss / wasted work
+
+- **Chat history could vanish entirely**: `ChatStore.readAll()` called `in.read(buf)` exactly once.
+  `InputStream#read` only guarantees a single byte, so a short read under storage pressure truncated
+  the JSON, parsing failed, and `readAll()` returned an empty list — the user sees "all my chats are gone",
+  and the next `save()` persists that empty list. The model index and the pending-download record used
+  the same pattern and are fixed the same way.
+- **No upper bound on the session file**: reads were capped at 16 MB, writes were not. Beyond that the
+  app produced a file it could not read back — equivalent to wiping history. Oldest sessions are now
+  evicted before writing.
+- **Cancel threw away all progress**: cancelling deleted the `.part` file and the resume record, so the
+  next attempt started from zero. Cancel now only stops the task; the breakpoint survives.
+- **Resume could splice two generations of a file**: when the server replaces a file it still answers 206,
+  so the new tail got appended to the old breakpoint. `Content-Range` is now parsed and a mismatched
+  start discards the breakpoint.
+- **Auto Backup could never succeed**: `backup_rules.xml` only excluded `external/models`, but the models
+  live under `getExternalFilesDir()` — the rule never matched. Multi-GB models blew the 24 MB quota, which
+  also meant chats and the language setting were never backed up. Both `root` and `file` domains are now
+  excluded, together with the unbounded `workspace/`.
+
+### Crashes / hangs
+
+- **Foreground service failed on Android 14**: the manifest declares `foregroundServiceType="dataSync"`,
+  but `startForeground()` passed no type, which throws `MissingForegroundServiceTypeException` on Android
+  14 — downloads degraded to a plain background thread and were killed on switching away.
+- **No fallback when the length is unknown**: the initial space check was skipped entirely when
+  `Content-Length` was missing, so the failure only surfaced as an opaque `IOException` once the partition
+  filled up. The safety watermark is now re-checked every 5 s while downloading.
+- **`LlamaEngine.load()` dereferenced a nullable listener** on every callback path — exactly the path taken
+  when a model fails to load.
+- **Native `g_last_error` was read and written from different threads**: a data race on a `std::string`.
+  Now guarded, and written through a single `setLastError()`.
+
+### Jank / wasted cycles
+
+- **Every streamed chunk rebound the whole bubble**: the engine already coalesces tokens per 40 ms, then the
+  UI called `notifyItemChanged` per chunk, pitting Markdown rendering against the inference thread.
+  Repaints are now throttled to 80 ms with a forced flush at the end.
+- **Network tools had no hard timeout**: `fetch_url` / `web_search` run on the agent thread, where "stop"
+  only takes effect at the next callback. Timeouts tightened to 8 s connect / 12 s read, and reads are
+  byte-capped (the old line-based guard let a single multi-MB line through).
+- **`Lang.zh()` was called thousands of times per second and boxed a Boolean**: now a flag plus a primitive.
+- **`Workspace.list()` sorted by code point**: Chinese filenames came out in arbitrary order; now `Collator`.
+- **Added `.nomedia`** so the media scanner stops walking gigabytes of `.gguf` in external storage.
+
+### Tests
+
+- New `DownloadCenterTest` (4) covering `Content-Range` parsing.
+- `CoreKitTest` gained 7: UTF-8 safe truncation, storage audit findings, sampling clamp rules.
+- 99 → **110 unit tests, all green**; `lintDebug` 0 errors; `assembleRelease` passes (R8 + NDK).
+
+---
+
 ## v2.6.0 — English/Chinese bilingual everywhere
 
 ### UI and strings

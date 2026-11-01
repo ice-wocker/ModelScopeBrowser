@@ -666,12 +666,12 @@ to anti-scraping. Quality and freshness are whatever the sources give.
 ### 12.3 Common commands
 
 ```bash
-./gradlew testDebugUnitTest        # unit tests (99)
+./gradlew testDebugUnitTest        # unit tests (110)
 ./gradlew lintDebug                # Lint (abortOnError)
 ./gradlew assembleDebug            # debug APK
 ./gradlew assembleRelease          # release APK (R8 + resource shrinking)
 ./gradlew :app:dependencies        # dependency tree
-git tag v2.6.0 && git push --tags  # trigger the Release pipeline
+git tag v2.6.1 && git push --tags  # trigger the Release pipeline
 ```
 
 ### 12.4 Diagnostic order

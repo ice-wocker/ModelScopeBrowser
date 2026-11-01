@@ -188,8 +188,13 @@ public class LocalModelsActivity extends BaseActivity implements DownloadCenter.
     @Override
     public void onProgress(LocalModel model, long done, long total) {
         if (!alive) return;
+        // 只刷有变化的行：下载中每秒若干次回调，整表 notifyDataSetChanged 会让
+        // 其它行的进度条与按钮反复重绑，长列表上肉眼可见地卡。
+        // 另外，正在下载的文件此时还没进索引（完成后才 add），data 里根本找不到它——
+        // 用局部刷新的话界面会一直停在「未下载」，所以找不到时退回整表刷新。
         int idx = indexOf(model.localPath);
         if (idx >= 0) adapter.notifyItemChanged(idx);
+        else adapter.notifyDataSetChanged();
     }
 
     @Override
@@ -208,6 +213,7 @@ public class LocalModelsActivity extends BaseActivity implements DownloadCenter.
     @Override
     public void onCancelled(LocalModel model) {
         if (!alive) return;
+        // 取消不再删除 .part（下次点下载可以接着下），所以这里只需要把行状态刷回可下载
         Toast.makeText(this, R.string.dl_cancelled, Toast.LENGTH_SHORT).show();
         refresh();
     }

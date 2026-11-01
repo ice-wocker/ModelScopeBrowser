@@ -9,6 +9,7 @@ import android.graphics.Typeface;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.MenuItem;
@@ -102,6 +103,11 @@ public class ChatActivity extends BaseActivity {
 
     /** 最近若干轮的推理性能，用于状态条展示均值/P90 与劣化提示。 */
     private final PerfStats perf = new PerfStats(12);
+
+    /** 流式输出的重绘节流间隔：内容每次都在累积，只有「通知重绑」被限流。 */
+    private static final long PAINT_INTERVAL_MS = 80;
+    private String pendingText;
+    private long lastPaint;
     /** 启动时按设备内存算出的「安全上下文」，用于参数弹窗里的说明。 */
     private int autoCtx = DEFAULT_CTX;
 
@@ -172,7 +178,8 @@ public class ChatActivity extends BaseActivity {
     private boolean ready;
     private boolean stopping;
     private boolean searching;
-    private boolean alive = true;
+    /** 界面是否还活着。推理线程与工具线程会读它，必须 volatile，否则可能读到缓存的 true 继续往已销毁的界面回调。 */
+    private volatile boolean alive = true;
     private final Handler ui = new Handler(Looper.getMainLooper());
 
     private Adapter adapter;
@@ -716,17 +723,24 @@ public class ChatActivity extends BaseActivity {
         engine.generate(new ArrayList<>(ctx), params, new LlamaEngine.StreamListener() {
             @Override
             public void onToken(String piece) {
-                if (!alive || aiIndex >= messages.size()) return;
-                ChatMessage m = messages.get(aiIndex);
-                m.content = m.content + piece;
-                adapter.notifyItemChanged(aiIndex);
-                scrollToBottom();
+                if (!alive) return;
+                // 引擎已把 40ms 内的 token 合并成一块，但界面上仍要自己限流：
+                // 每次 notifyItemChanged 都会重绑并重新测量气泡（含 Markdown 图片/表格），
+                // 推理线程和渲染线程抢 CPU 时直接表现为解码速度掉一截。
+                // 内容照常累积，只是把「重绘」压到 80ms 一次，收尾时再补一次。
+                pendingText = pendingText == null ? piece : pendingText + piece;
+                final long now = SystemClock.uptimeMillis();
+                if (now - lastPaint >= PAINT_INTERVAL_MS) {
+                    lastPaint = now;
+                    flushStreamPaint();
+                }
             }
 
             @Override
             public void onDone(String fullText, int tokens, long elapsedMs, long prefillMs,
                                double tokensPerSec) {
                 out[0] = fullText == null ? "" : fullText;
+                flushStreamPaint();
                 if (aiIndex < stats.size()) {
                     stats.set(aiIndex, getString(R.string.chat_stat,
                             prefillMs / 1000.0, tokensPerSec, tokens));
@@ -740,6 +754,7 @@ public class ChatActivity extends BaseActivity {
             @Override
             public void onError(String message) {
                 failed[0] = true;
+                flushStreamPaint();
                 if (aiIndex < messages.size()) {
                     messages.get(aiIndex).content = getString(R.string.chat_load_failed, message);
                     adapter.notifyItemChanged(aiIndex);
@@ -774,6 +789,22 @@ public class ChatActivity extends BaseActivity {
                 m.content = TextUtils.isEmpty(text) ? getString(R.string.chat_stopped) : text;
             }
             adapter.notifyDataSetChanged();
+        });
+    }
+
+    /** 把累积的流式片段刷到界面上（按 80ms 节流，收尾时强制刷一次）。 */
+    private void flushStreamPaint() {
+        final String piece = pendingText;
+        pendingText = null;
+        if (piece == null || piece.isEmpty()) return;
+        uiSync(() -> {
+            if (messages.isEmpty()) return;
+            final int at = messages.size() - 1;
+            ChatMessage m = messages.get(at);
+            if (!m.isAssistant()) return;
+            m.content = m.content + piece;
+            adapter.notifyItemChanged(at);
+            scrollToBottom();
         });
     }
 

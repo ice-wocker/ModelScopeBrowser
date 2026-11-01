@@ -26,6 +26,8 @@ public class ChatStore {
     private static final String TAG = "ChatStore";
     private static final String FILE = "chats.json";
     private static final int MAX_PER_MODEL = 50;
+    /** 单文件体积上限（与读取上限一致）：超出就淘汰最老的会话，而不是写出一份读不回来的文件。 */
+    private static final long MAX_BYTES = 16L * 1024 * 1024;
 
     /** 一个会话：一段连续对话 + 每条回复的统计文案。 */
     public static class Session {
@@ -141,10 +143,13 @@ public class ChatStore {
         List<Session> out = new ArrayList<>();
         if (!file.exists()) return out;
         final long len = file.length();
-        if (len <= 0 || len > 16L * 1024 * 1024) return out;   // 异常大小当作空，避免 OOM
+        if (len <= 0 || len > MAX_BYTES) return out;   // 异常大小当作空，避免 OOM
         try (FileInputStream in = new FileInputStream(file)) {
             byte[] buf = new byte[(int) len];
-            int n = in.read(buf);
+            // 必须循环读满：InputStream#read 只保证「至少一个字节」，设备存储紧张时
+            // 一次短读就会让 JSON 截断，整份历史被判为损坏并静默清空 —— 用户看到的是「聊天记录全没了」。
+            int n = 0, r;
+            while (n < buf.length && (r = in.read(buf, n, buf.length - n)) > 0) n += r;
             if (n <= 0) return out;
             JSONObject root = new JSONObject(new String(buf, 0, n, StandardCharsets.UTF_8));
             JSONArray arr = root.optJSONArray("sessions");
@@ -194,6 +199,32 @@ public class ChatStore {
         } catch (Exception ignored) {
         }
         final byte[] bytes = root.toString().getBytes(StandardCharsets.UTF_8);
+        if (bytes.length > MAX_BYTES) {
+            // 与 readAll 的读取上限对齐：写出一份读不回来的文件，等于把历史全丢。
+            // 淘汰最久没动的会话，直到落回上限以内。
+            List<Session> trimmed = new ArrayList<>(all);
+            Collections.sort(trimmed, (a, b) -> Long.compare(b.updatedAt, a.updatedAt));
+            while (!trimmed.isEmpty()) {
+                trimmed.remove(trimmed.size() - 1);
+                JSONArray a2 = new JSONArray();
+                for (Session s : trimmed) a2.put(toJson(s));
+                JSONObject r2 = new JSONObject();
+                try {
+                    r2.put("sessions", a2);
+                } catch (Exception ignored) {
+                }
+                if (r2.toString().getBytes(StandardCharsets.UTF_8).length <= MAX_BYTES) {
+                    writeBytes(r2.toString().getBytes(StandardCharsets.UTF_8));
+                    return;
+                }
+            }
+            Log.w(TAG, "会话超过体积上限，放弃写入");
+            return;
+        }
+        writeBytes(bytes);
+    }
+
+    private void writeBytes(byte[] bytes) {
         final File tmp = new File(file.getParentFile(), FILE + ".tmp");
         // 先写临时文件再原子改名，避免中途被杀留下半截文件导致历史全丢
         try (FileOutputStream out = new FileOutputStream(tmp)) {
