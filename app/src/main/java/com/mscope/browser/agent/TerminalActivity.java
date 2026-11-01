@@ -10,7 +10,6 @@ import android.widget.EditText;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
-import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 
 import com.google.android.material.appbar.MaterialToolbar;
@@ -21,6 +20,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import com.mscope.browser.i18n.BaseActivity;
 
 /**
  * 本机终端：直接执行 /system/bin/sh 命令（真 shell），工作目录固定在应用工作区。
@@ -28,7 +28,7 @@ import java.util.concurrent.Executors;
  * <p>命令在后台线程执行，输出回到界面；受 Android 沙箱限制，只能访问应用私有目录，
  * 无需 root、也不需要任何权限。
  */
-public class TerminalActivity extends AppCompatActivity {
+public class TerminalActivity extends BaseActivity {
 
     private Shell shell;
     private final ExecutorService exec = Executors.newSingleThreadExecutor();

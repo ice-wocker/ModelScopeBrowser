@@ -91,7 +91,9 @@ public class Shell {
             watchdog.interrupt();
 
             String text = sb.toString();
-            if (truncated) text += "\n…（输出过长，已截断）";
+            if (truncated) {
+            text += com.mscope.browser.i18n.Lang.zh() ? "\n…（输出过长，已截断）" : "\n… (truncated: too long)";
+        }
             return new Out(text, code);
         } catch (Exception e) {
             if (p != null) kill(p);

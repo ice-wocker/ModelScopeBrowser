@@ -12,13 +12,13 @@ import android.widget.ProgressBar;
 import android.widget.Toast;
 
 import androidx.activity.OnBackPressedCallback;
-import androidx.appcompat.app.AppCompatActivity;
 
 import com.google.android.material.appbar.MaterialToolbar;
 import com.google.android.material.button.MaterialButton;
+import com.mscope.browser.i18n.BaseActivity;
 
 /** 网页兜底模式：直接加载魔搭官网，保证任何情况下都能浏览全部模型。 */
-public class WebActivity extends AppCompatActivity {
+public class WebActivity extends BaseActivity {
 
     public static final String EXTRA_URL = "url";
 

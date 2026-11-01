@@ -12,7 +12,6 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
-import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -23,15 +22,19 @@ import com.mscope.browser.Format;
 import com.mscope.browser.MainActivity;
 import com.mscope.browser.R;
 import com.mscope.browser.Ui;
+import com.mscope.browser.core.StorageGuard;
 import com.mscope.browser.llama.ChatActivity;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import com.mscope.browser.i18n.BaseActivity;
+import com.mscope.browser.i18n.Lang;
 
 /** 本地模型库：查看已下载的 GGUF、占用空间，一键进入离线对话或删除。 */
-public class LocalModelsActivity extends AppCompatActivity implements DownloadCenter.Listener {
+public class LocalModelsActivity extends BaseActivity implements DownloadCenter.Listener {
 
     private LocalModelStore store;
     private DownloadCenter downloads;
@@ -104,11 +107,49 @@ public class LocalModelsActivity extends AppCompatActivity implements DownloadCe
             for (LocalModel m : list) sum += m.size;
             final long total = sum;
             final long free = store.freeSpace();
+            final String audit = auditLibrary(list);
             ui.post(() -> {
                 if (!alive) return;
                 apply(list, total, free);
+                // 体检结论只作为一次提示，不打扰正常浏览；-1 表示本次已经提示过
+                if (!audit.isEmpty() && !audit.equals(lastAudit)) {
+                    lastAudit = audit;
+                    Toast.makeText(this, audit, Toast.LENGTH_LONG).show();
+                }
             });
         });
+    }
+
+    /** 上次提示过的体检结论，避免每次进页面都弹同一个 Toast。 */
+    private String lastAudit = "";
+
+    /**
+     * 交叉比对索引与磁盘：只剩索引没文件的「幽灵条目」、有文件没索引的「孤儿」、
+     * 以及 0 字节的空壳。这些都是历史版本并发写留下的，静默存在只会让用户
+     * 点开报「文件不存在」或白占空间。
+     */
+    private String auditLibrary(List<LocalModel> list) {
+        try {
+            List<StorageGuard.Entry> entries = new ArrayList<>();
+            for (LocalModel m : list) {
+                if (m.localPath != null && !m.localPath.isEmpty()) {
+                    entries.add(new StorageGuard.Entry(m.localPath, m.size));
+                }
+            }
+            List<StorageGuard.Entry> existing = new ArrayList<>();
+            File dir = store.dir();
+            File[] files = dir == null ? null : dir.listFiles();
+            if (files != null) {
+                for (File f : files) {
+                    String name = f.getName();
+                    if (!f.isFile() || !name.toLowerCase(java.util.Locale.ROOT).endsWith(".gguf")) continue;
+                    existing.add(new StorageGuard.Entry(f.getAbsolutePath(), f.length()));
+                }
+            }
+            return StorageGuard.summarize(StorageGuard.audit(entries, existing), Lang.zh());
+        } catch (Throwable t) {
+            return "";
+        }
     }
 
     private void apply(List<LocalModel> list, long totalSize, long free) {
