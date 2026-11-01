@@ -7,7 +7,7 @@ recyclerview = "1.4.0"
 swiperefresh = "1.2.0"
 markwon = "4.6.2"
 junit = "4.13.2"
-org-json = "20240303"
+org-json = "20260814"
 
 [libraries]
 androidx-appcompat = { module = "androidx.appcompat:appcompat", version.ref = "appcompat" }
