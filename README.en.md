@@ -29,7 +29,7 @@ The chat screen is not a toy. It is an **agent that can act**: the model may cal
 search the web, read and write workspace files and preview web pages — then keep reasoning from the real
 results it gets back.
 
-> **Current release v2.5.0** (versionCode 13) · multi-variant arm64 CPU backends · pure CPU offline inference · data never leaves the device
+> **Current release v2.6.0** (versionCode 14) · multi-variant arm64 CPU backends · pure CPU offline inference · data never leaves the device
 
 ![Architecture](docs/assets/arch.png)
 
@@ -93,7 +93,7 @@ long-press a reply to **continue generating** even after hitting the cap.
 
 | Channel | Notes |
 |---|---|
-| **[Releases](https://github.com/ice-wocker/ModelScopeBrowser/releases)** | Recommended. Latest **v2.5.0** `ModelScope-Models-2.5.0.apk`, built by CI and properly signed (~**8.2 MB**) |
+| **[Releases](https://github.com/ice-wocker/ModelScopeBrowser/releases)** | Recommended. Latest **v2.6.0** `ModelScope-Models-2.6.0.apk`, built by CI and properly signed (~**8.2 MB**) |
 | **[Actions artifacts](https://github.com/ice-wocker/ModelScopeBrowser/actions)** | Every push produces an `apk` artifact containing both debug and release builds |
 
 - Requires **Android 7.0 (API 24)** or newer; allow “install unknown apps” for the first install
@@ -257,7 +257,7 @@ Same armv8.6 device / Qwen2.5-0.5B `Q4_K_M` / context 8192:
 | armv9.0 SVE2 | 25.8 tok/s | 1.70× |
 
 Three-turn cumulative prefill: **655 → 328 tokens** with prefix reuse, still byte-identical output.
-Method and disassembly checks: [benchmarks](docs/BENCHMARKS.md).
+Method and disassembly checks: [benchmarks](docs/BENCHMARKS.en.md).
 
 ## Security boundaries
 
@@ -276,7 +276,7 @@ Model output turns into commands, paths and URLs, so every entry point has a gat
 
 **Why did loading a model fail?** Read the message shown in the UI. “Backend not registered” means the
 multi-variant `.so` files were not extracted to `nativeLibraryDir` — `useLegacyPackaging` must not be disabled.
-See [troubleshooting](docs/TROUBLESHOOTING.md).
+See [troubleshooting](docs/TROUBLESHOOTING.en.md).
 
 **The model won't act.** Use the instruct variant, or verify the terminal path with `/run ls` first.
 Models ≤2.5B receive a compressed prompt automatically, which they follow much more reliably.
@@ -287,7 +287,7 @@ Pure CPU is the pragmatic choice today.
 **Can it download non-GGUF files?** Only `.gguf` is handled in-app; everything else goes to the system browser —
 only GGUF can be loaded by the built-in engine.
 
-More in the [full manual](docs/README.md).
+More in the [full manual](docs/README.en.md).
 
 ---
 
@@ -295,20 +295,20 @@ More in the [full manual](docs/README.md).
 
 The README stays at the “thirty seconds” level. For depth:
 
-| Document | Contents |
-|---|---|
-| **[Full manual](docs/README.md)** | features, architecture, engine, agent, memory & storage, security model, CI, FAQ, cheat sheet |
-| **[Modules](docs/MODULES.md)** | 19 modules: what problem, how it is solved, where it goes wrong |
-| **[Architecture](docs/ARCHITECTURE.md)** | layer boundaries, dependency direction, one tap → one answer, JNI surface, extension points |
-| **[Developing](docs/DEVELOPING.md)** | environment, first build, changing code, adding a tool, releasing, PRs |
-| **[FAQ](docs/FAQ.md)** | 38 questions you only ask after using it |
-| **[Troubleshooting](docs/TROUBLESHOOTING.md)** | symptom-indexed: load failures, wrong answers, mojibake, stop not working, 404s, space misjudgement |
-| **[Benchmarks](docs/BENCHMARKS.md)** | variant comparison with disassembly, prefix reuse, parameter effects |
-| **[Diagrams](docs/DIAGRAMS.md)** | state machines, sequences, decision trees, dependency graphs (Mermaid) |
-| **[Changelog](docs/CHANGELOG.md)** | full history from v1.0 |
+**All 10 long-form documents are bilingual** — every page has a language switch at the top.
 
-> The long-form documents above are currently written in Chinese. The app UI, prompts and tool layer are fully
-> bilingual; translating the manuals is tracked as follow-up work.
+| Document | English | 中文 |
+|---|---|---|
+| Complete handbook (features / architecture / engine / agent / memory / security / CI / FAQ / cheat sheet / API) | [README.en](docs/README.en.md) | [README](docs/README.md) |
+| Module deep dive (19 modules: what problem, how, where it goes wrong) | [MODULES.en](docs/MODULES.en.md) | [MODULES](docs/MODULES.md) |
+| Architecture and data flow (layers, dependency direction, one tap → one answer, JNI, extension points) | [ARCHITECTURE.en](docs/ARCHITECTURE.en.md) | [ARCHITECTURE](docs/ARCHITECTURE.md) |
+| Developer guide (environment, first build, changing code, adding tools, releasing, PRs) | [DEVELOPING.en](docs/DEVELOPING.en.md) | [DEVELOPING](docs/DEVELOPING.md) |
+| Deep Q&A (38 questions you only ask after using it) | [FAQ.en](docs/FAQ.en.md) | [FAQ](docs/FAQ.md) |
+| Troubleshooting (symptom-indexed, 14 categories) | [TROUBLESHOOTING.en](docs/TROUBLESHOOTING.en.md) | [TROUBLESHOOTING](docs/TROUBLESHOOTING.md) |
+| Benchmark data (tiers with disassembly, prefix reuse, memory estimates) | [BENCHMARKS.en](docs/BENCHMARKS.en.md) | [BENCHMARKS](docs/BENCHMARKS.md) |
+| Diagrams and flows (state machines, sequences, decision trees, dependencies) | [DIAGRAMS.en](docs/DIAGRAMS.en.md) | [DIAGRAMS](docs/DIAGRAMS.md) |
+| Changelog (v1.0 to now) | [CHANGELOG.en](docs/CHANGELOG.en.md) | [CHANGELOG](docs/CHANGELOG.md) |
+| Poster (single offline file, images embedded) | [POSTER](docs/POSTER.md) | — |
 
 ---
 

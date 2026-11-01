@@ -28,7 +28,7 @@ the model can run shell commands, search the web and work with files.*
 对话页不是「只能聊天」的玩具——它是一个**能动手的智能体**：模型可以自己调用手机终端跑命令、联网搜索、读写工作区文件、预览网页，
 并在拿到真实结果后继续推理。
 
-> **当前版本 v2.5.0**（versionCode 13）· 原生化 arm64 多档指令集 · 纯 CPU 离线推理 · 数据不出设备
+> **当前版本 v2.6.0**（versionCode 14）· 原生化 arm64 多档指令集 · 纯 CPU 离线推理 · 数据不出设备
 
 ![架构](docs/assets/arch.png)
 
@@ -126,7 +126,7 @@ the model can run shell commands, search the web and work with files.*
 
 | 渠道 | 说明 |
 |---|---|
-| **[Releases](https://github.com/ice-wocker/ModelScopeBrowser/releases)** | 推荐。最新 **v2.5.0** `ModelScope-Models-2.5.0.apk`，CI 构建 + 正式签名（约 **8.2 MB**） |
+| **[Releases](https://github.com/ice-wocker/ModelScopeBrowser/releases)** | 推荐。最新 **v2.6.0** `ModelScope-Models-2.6.0.apk`，CI 构建 + 正式签名（约 **8.2 MB**） |
 | **[Actions 产物](https://github.com/ice-wocker/ModelScopeBrowser/actions)** | 每次提交都会产出 `apk` artifact（debug 与 release 都在里面） |
 
 - 要求：**Android 7.0 (API 24) 及以上**；首次安装需允许「安装未知来源应用」
@@ -319,19 +319,20 @@ v2.5.0 新增了 `core/` 层，专治「默认值拍脑袋」：
 
 README 只放「三十秒能读完」的信息。想深入看这些：
 
-| 文档 | 内容 |
-|---|---|
-| **[完整手册](docs/README.md)** | 功能、架构、推理引擎、智能体、内存与存储、安全模型、工程与 CI、常见问答、速查表、API 速查 |
-| **[模块深入](docs/MODULES.md)** | 19 个模块逐个讲：要解决什么 / 怎么做的 / 哪里容易写错 |
-| **[架构与数据流](docs/ARCHITECTURE.md)** | 四层边界、依赖方向、一次点击到一次回答的完整路径、JNI 接口、扩展点 |
-| **[开发指南](docs/DEVELOPING.md)** | 环境、首次构建、改代码、加工具、出包、提 PR |
-| **[深问答](docs/FAQ.md)** | 38 个「用起来才会问」的问题：选模型、速度、内存、安全、设计取舍 |
-| **[故障排查](docs/TROUBLESHOOTING.md)** | 按症状索引：加载失败 / 答非所问 / 乱码 / 停止无效 / 404 / 空间误判 / 无法覆盖安装 |
-| **[性能数据](docs/BENCHMARKS.md)** | 档位对比（含反汇编核对）、前缀复用、参数调整效果、内存估算、怎么自己测 |
-| **[图解与流程](docs/DIAGRAMS.md)** | 状态机、时序图、决策树、模块依赖、版本演进（Mermaid） |
-| **[更新日志](docs/CHANGELOG.md)** | 从 v1.0 到现在的完整历史与每次踩的坑 |
-| **[海报（内嵌图）](docs/POSTER.md)** | 单文件可离线查看的图解页 |
-| **[English README](README.en.md)** | 英文项目介绍（应用本身中英双语，长文档目前为中文） |
+**10 份长文档全部中英双语**，每页顶部可互切。
+
+| 文档 | 中文 | English |
+|---|---|---|
+| 完整手册（功能 / 架构 / 引擎 / 智能体 / 内存 / 安全 / CI / FAQ / 速查 / API） | [README](docs/README.md) | [README.en](docs/README.en.md) |
+| 模块深入（19 个模块：要解决什么 / 怎么做的 / 哪里容易写错） | [MODULES](docs/MODULES.md) | [MODULES.en](docs/MODULES.en.md) |
+| 架构与数据流（四层边界、依赖方向、一次点击到一次回答、JNI、扩展点） | [ARCHITECTURE](docs/ARCHITECTURE.md) | [ARCHITECTURE.en](docs/ARCHITECTURE.en.md) |
+| 开发指南（环境、首次构建、改代码、加工具、出包、提 PR） | [DEVELOPING](docs/DEVELOPING.md) | [DEVELOPING.en](docs/DEVELOPING.en.md) |
+| 深问答（38 个「用起来才会问」的问题） | [FAQ](docs/FAQ.md) | [FAQ.en](docs/FAQ.en.md) |
+| 故障排查（按症状索引 14 类） | [TROUBLESHOOTING](docs/TROUBLESHOOTING.md) | [TROUBLESHOOTING.en](docs/TROUBLESHOOTING.en.md) |
+| 性能数据（档位对比含反汇编核对、前缀复用、内存估算） | [BENCHMARKS](docs/BENCHMARKS.md) | [BENCHMARKS.en](docs/BENCHMARKS.en.md) |
+| 图解与流程（状态机、时序、决策树、依赖、演进） | [DIAGRAMS](docs/DIAGRAMS.md) | [DIAGRAMS.en](docs/DIAGRAMS.en.md) |
+| 更新日志（v1.0 至今） | [CHANGELOG](docs/CHANGELOG.md) | [CHANGELOG.en](docs/CHANGELOG.en.md) |
+| 海报（单文件可离线查看，含图） | [POSTER](docs/POSTER.md) | — |
 
 ---
 

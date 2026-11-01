@@ -1,5 +1,7 @@
 # 图解与流程图
 
+> 🌐 语言 / Language: 中文 · [English](DIAGRAMS.en.md)
+
 这一页是「图比其他文字省事」的那些东西：状态机、时序、决策树、结构图。
 全部用 Mermaid 写，GitHub 直接渲染；配图是 PNG。
 

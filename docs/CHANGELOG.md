@@ -1,5 +1,7 @@
 # 更新日志
 
+> 🌐 语言 / Language: 中文 · [English](CHANGELOG.en.md)
+
 完整历史。按时间倒序。
 
 ## v2.6.0 — 中英双语
@@ -33,6 +35,16 @@
 - `FormatTest` 补英文 `K/M` 断言；原有断言中文文案的用例显式 `Lang.setChinese(true)` 钉住语言，
   避免在英文 CI 机器上出现「看起来功能坏了」的假失败。
 - 单测 87 → **99 个，全绿**。
+
+### 文档（v2.6.0 补齐）
+
+- 新增 `docs/README.en.md`：完整手册英文版（12 章 + API 速查 + 术语表）。
+- 新增 `docs/MODULES.en.md`、`docs/ARCHITECTURE.en.md`、`docs/DEVELOPING.en.md`、
+  `docs/TROUBLESHOOTING.en.md`、`docs/FAQ.en.md`、`docs/BENCHMARKS.en.md`、`docs/DIAGRAMS.en.md`、
+  `docs/CHANGELOG.en.md`：全部 10 份长文档中英双语，每页顶部可互切。
+- `docs/POSTER.md` 的说明文字改英文（图片内嵌，单文件可离线看）。
+- `README.md` 与 `README.en.md` 的文档表改成「中文 / English」两列。
+- 版本号 `versionCode 13 → 14`，`versionName 2.5.0 → 2.6.0`。
 
 ---
 

@@ -1,5 +1,7 @@
 # 深问答（FAQ）
 
+> 🌐 语言 / Language: 中文 · [English](FAQ.en.md)
+
 这里收集的是「用起来才会问」的问题。基础问题见 [完整手册第 11 节](README.md#11-常见问答)，
 报错见 [故障排查](TROUBLESHOOTING.md)。
 
