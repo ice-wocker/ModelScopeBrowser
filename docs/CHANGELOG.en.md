@@ -4,6 +4,78 @@
 
 The full history, newest first.
 
+## v2.7.0 — 57 tools, and one table behind all of them
+
+### Agent (the bulk of this release)
+
+There were 8 tools, and **three separately hand-maintained lists**: the description shown to the model,
+the name whitelist, and the risky-action check. Adding a tool meant editing three places, and missing one
+produced either "callable but the model never hears about it" or "risky action without confirmation".
+This release fixes that first, then adds volume.
+
+- **`agent/ToolRegistry` is now the single source**: every tool declares its name, group, arguments,
+  risk level and one line in each language. `AgentTools.describe`, the `ToolCall` whitelist and
+  `AgentTools.risky` all derive from it.
+- **8 → 57 tools**, switchable by group (files / text / calc / device / web / shell / agent state / external model).
+  A disabled group is invisible to the model, not "visible but broken".
+- **`apply_patch`**: the model gives "find this" and "replace with that". Small models lose content when
+  they rewrite a whole file (a 300-line HTML comes back as 120 after one button change); hunk edits keep
+  the blast radius small, and when the find text is missing the file is **left byte-for-byte untouched**
+  while the closest matching region is handed back for self-correction.
+- **`grep` / `find_files` / `file_tree` / `file_stat`**: find things without pulling whole files into context.
+- **`todo_*`**: the plan lives in `/todo.json`, so a long task no longer "forgets step one by step four".
+- **`memory_*`**: long-term preferences in `/memory.txt`, injected every turn, capped by `PromptTemplate`.
+- **`skill_*`**: 7 built-in procedures (summary, code review, debugging, single-file page, translation,
+  small-step refactor, safe commands). BM25 picks one, and **only that body** enters the context.
+- **`llm_ask`**: optional OpenAI-compatible channel. The on-device model decides; hard sub-problems get
+  outsourced. The key stays on the device and never reaches the transcript or a tool result.
+- **`redact`**: strips keys, tokens, private keys and URL passwords before they are fed back.
+
+### New pure-logic classes (no Android deps, JVM-testable)
+
+`DigestKit` (streaming digests, no RAM blow-up on 4 GB files) · `TimeKit` · `JsonAccess` (`a.b[0].c` tolerant reads) ·
+`SseParser` (survives events split across chunks) · `Bm25` (CJK bigrams + ranking) · `DiffKit` (LCS diff, unified rendering) ·
+`DocConverter` (CSV ↔ Markdown tables, wide-char alignment, Mermaid charts).
+
+### Safety boundaries
+
+- **`PathGuard`** runs before any `shell` command. Hard rejects: `rm -rf /`, `dd of=/dev/block/…`, fork bombs,
+  `mkfs`, `su`, `pm uninstall`, recursive chmod/chown. Warnings: recursive delete, wildcards, redirects to root,
+  "download piped straight into a shell". Absolute paths outside the workspace are rejected outright.
+- **Redirects are followed manually**, re-checking the address allow-list on every hop; the default automatic
+  following would bypass the first-hop check.
+- **Download and unzip are capped**, with canonical-path checks per entry to stop zip slip.
+
+### UI
+
+- A "capabilities" entry on the status bar switches tool groups and shows how many are on.
+- New slash commands: `/caps` `/ext` `/memo` `/todo` `/skill`.
+- External model is configured in-app (base URL / key / model), not hard-coded.
+
+### Verification
+
+```
+testDebugUnitTest  ->  157 green (99 -> 157; +26 ToolKitTest, +32 AgentKitTest)
+lintDebug          ->  0 errors (6 NewApi errors introduced and all fixed:
+                       java.util.Base64 and Files.readAllBytes do not exist at minSdk 24)
+assembleDebug      ->  passes, including NDK cross-compilation of llama.cpp and JNI linking
+values / values-zh ->  247 keys each, one for one
+```
+
+A few of the new tests exist because they caught bugs I wrote: quote normalisation has to be
+length-preserving (otherwise slicing the original by the normalised index lands off by one);
+the loose and strict redaction rules shared one list, silently defeating `includePair=false`;
+calendar-day arithmetic must go through `Calendar` or the timezone pushes it a day off; and
+tests asserting Chinese strings must pin the language, or they fail falsely on an English machine.
+
+### Not done (not pretending otherwise)
+
+- **Still no on-device regression.** It is compile-time + unit tests + static reasoning.
+  `apply_patch`, `notify`, `clipboard` and `share` only mean anything on a real phone.
+- **`llm_ask` was never run against a live provider.** Request shape and response parsing are unit-tested,
+  but "how exactly this vendor wants its auth header" can only be settled by trying it.
+- **No GPU backend** (Vulkan / OpenCL). Pure CPU inference is still the ceiling.
+
 ## v2.6.0 — English/Chinese bilingual everywhere
 
 ### UI and strings

@@ -13,7 +13,7 @@
 [![Android](https://img.shields.io/badge/Android-7.0%2B%20(API%2024)-3DDC84?logo=android&logoColor=white)](#)
 [![llama.cpp](https://img.shields.io/badge/llama.cpp-b11205-000000)](#)
 [![i18n](https://img.shields.io/badge/i18n-English%20%C2%B7%20%E4%B8%AD%E6%96%87-4B5563)](#internationalisation)
-[![Tests](https://img.shields.io/badge/tests-99%20passed-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-157%20passed-brightgreen)](#)
 
 [中文](README.md) · [Install](#install) · [Features](#features) · [Usage](#usage) · [How it works](#how-it-works) · [Docs](#documentation) · [Build](#build)
 
@@ -29,7 +29,7 @@ The chat screen is not a toy. It is an **agent that can act**: the model may cal
 search the web, read and write workspace files and preview web pages — then keep reasoning from the real
 results it gets back.
 
-> **Current release v2.6.0** (versionCode 14) · multi-variant arm64 CPU backends · pure CPU offline inference · data never leaves the device
+> **Current release v2.7.0** (versionCode 15) · multi-variant arm64 CPU backends · pure CPU offline inference · data never leaves the device
 
 ![Architecture](docs/assets/arch.png)
 
@@ -69,7 +69,7 @@ through `i18n/Lang`. Each Activity pins the language in `attachBaseContext`, whi
 | **Model details** | Metadata, **file list** with sizes and LFS markers, **Markdown-rendered** description; one-tap download for `.gguf`. |
 | **In-app download** | Saved to app-private storage (**no storage permission**), progress and cancel, **resumable**, **foreground-service notification**, resumes automatically after the process is killed. On completion it validates the byte count and sniffs the `GGUF` magic to reject error pages and truncated files. Before starting it runs a **storage check** and tells you how much will be left — or exactly how much you are short. |
 | **Offline chat** | Built-in **llama.cpp**, streaming tokens, stop at any time, **Markdown rendering** (headings, lists, tables, code), long-press to copy / regenerate / edit-and-resend / continue / delete, export a chat, and a status bar with context usage plus decode speed (last / mean / P90). The context window is **sized from device memory** on first run instead of a hard-coded number. |
-| **Agent** | Model emits a tool call → app really executes it → result is fed back → the model continues, up to **8 steps**, interruptible. Tools: `shell` (real `/system/bin/sh`, cwd = workspace), `web_search` / `fetch_url` (public http/https only), `read_file` / `write_file` / `list_files` / `delete_file` (atomic writes, path-escaped), `open_preview`. `shell`, `write_file` and `delete_file` ask for confirmation first. |
+| **Agent** | Model emits a tool call → app really executes it → result is fed back → the model continues, up to **8 steps**, interruptible. **57 tools**, all declared in one registry (`agent/ToolRegistry`), so the description the model sees, the name whitelist and the risky-action check cannot drift apart. Groups: **files** (`read_file`, `write_file`, `apply_patch`, `grep`, `find_files`, `zip`/`unzip`, `checksum`…), **text** (`diff`, `redact`, `summarize_text`, `convert_table`, `json_query`…), **calc & time** (`calc`, `date_math`, `unit_convert`, `base64`…), **device** (`device_info`, `storage_report`, `notify`, `clipboard`, `share`…), **shell**, **web** (`web_search`, `fetch_url`, `download_file`, `http_request`), **agent state** (`memory_*`, `todo_*`, `skill_*`) and an optional **external model** (`llm_ask`). `apply_patch` takes "find this / replace with that" instead of a full rewrite; when the find text is missing the file is left **byte-for-byte untouched**. Writes and device actions ask for confirmation first, and each group can be switched off from the capabilities sheet. |
 | **Workspace** | App-private `filesDir/workspace`: paths are forced inside the root, writes are atomic. Browse / create / view / share / delete; tap an `.html` file for an in-app WebView preview (JS, CSS and relative assets work; toggle desktop mode or hand off to the system browser). |
 | **Terminal** | A **real shell**, cwd pinned to the workspace, 60-second timeout, truncated output, runs off the UI thread. Sandboxed by Android: app-private directories only, no root. |
 | **Chat history** | Multiple sessions per model, persisted on every change; the most recent 50 are kept per model. |
@@ -93,7 +93,7 @@ long-press a reply to **continue generating** even after hitting the cap.
 
 | Channel | Notes |
 |---|---|
-| **[Releases](https://github.com/ice-wocker/ModelScopeBrowser/releases)** | Recommended. Latest **v2.6.0** `ModelScope-Models-2.6.0.apk`, built by CI and properly signed (~**8.2 MB**) |
+| **[Releases](https://github.com/ice-wocker/ModelScopeBrowser/releases)** | Recommended. Latest **v2.7.0** `ModelScope-Models-2.7.0.apk`, built by CI and properly signed (~**8.2 MB**) |
 | **[Actions artifacts](https://github.com/ice-wocker/ModelScopeBrowser/actions)** | Every push produces an `apk` artifact containing both debug and release builds |
 
 - Requires **Android 7.0 (API 24)** or newer; allow “install unknown apps” for the first install
