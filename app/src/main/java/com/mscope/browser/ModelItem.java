@@ -46,9 +46,14 @@ public class ModelItem {
 
     private static String fmt(long seconds) {
         if (seconds <= 0) return "-";
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd", Locale.CHINA);
+        // 列表里每行都要格式化两次，SimpleDateFormat 不是线程安全的但这里只读共用：
+        // 用 ThreadLocal 既避免反复构造（热点路径），又不会跨线程共享实例。
+        SimpleDateFormat sdf = SDF.get();
         return sdf.format(new Date(seconds * 1000L));
     }
+
+    private static final ThreadLocal<SimpleDateFormat> SDF =
+            ThreadLocal.withInitial(() -> new SimpleDateFormat("yyyy-MM-dd", Locale.CHINA));
 
     public static ModelItem from(JSONObject o) {
         ModelItem m = new ModelItem();

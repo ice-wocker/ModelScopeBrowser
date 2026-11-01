@@ -12,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * 应用私有工作区：模型与用户创建的文件都落在这里（filesDir/workspace）。
@@ -41,7 +42,7 @@ public class Workspace {
 
         public boolean isText() {
             if (dir) return false;
-            String n = name.toLowerCase();
+            String n = name.toLowerCase(Locale.ROOT);
             return n.endsWith(".html") || n.endsWith(".htm") || n.endsWith(".txt")
                     || n.endsWith(".md") || n.endsWith(".json") || n.endsWith(".csv")
                     || n.endsWith(".xml") || n.endsWith(".js") || n.endsWith(".css")
@@ -53,7 +54,7 @@ public class Workspace {
 
         public boolean isHtml() {
             if (dir) return false;
-            String n = name.toLowerCase();
+            String n = name.toLowerCase(Locale.ROOT);
             return n.endsWith(".html") || n.endsWith(".htm");
         }
     }
@@ -150,11 +151,14 @@ public class Workspace {
         File f = resolve(rel);
         if (!f.exists()) throw new IOException("文件不存在：" + rel);
         if (f.isDirectory()) throw new IOException("这是一个目录：" + rel);
-        if (f.length() > READ_LIMIT) {
-            throw new IOException("文件过大（" + f.length() + " 字节），仅支持读取 512KB 以内的文本");
-        }
         try (InputStream in = new FileInputStream(f)) {
-            byte[] buf = new byte[(int) f.length()];
+            // 先按 length() 申请，但真正读到多少算多少：文件可能在检查后被写大，
+            // 直接 new byte[(int) length()] 遇到并发写入会读到半截或抛出 ArrayIndexOutOfBounds。
+            final long len = f.length();
+            if (len > READ_LIMIT) {
+                throw new IOException("文件过大（" + len + " 字节），仅支持读取 512KB 以内的文本");
+            }
+            byte[] buf = new byte[(int) Math.max(16, len)];
             int n = 0, r;
             while (n < buf.length && (r = in.read(buf, n, buf.length - n)) > 0) n += r;
             return new String(buf, 0, n, StandardCharsets.UTF_8);
@@ -166,7 +170,8 @@ public class Workspace {
         File f = resolve(rel);
         if (f.isDirectory()) throw new IOException("目标是一个目录：" + rel);
         File parent = f.getParentFile();
-        if (parent != null && !parent.exists() && !parent.mkdirs()) {
+        if (parent == null) throw new IOException("路径不合法：" + rel);
+        if (!parent.exists() && !parent.mkdirs()) {
             throw new IOException("无法创建目录：" + rel);
         }
         byte[] bytes = (content == null ? "" : content).getBytes(StandardCharsets.UTF_8);

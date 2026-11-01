@@ -242,7 +242,18 @@ public class DetailActivity extends AppCompatActivity implements DownloadCenter.
         return f.displayName().toLowerCase(Locale.ROOT).endsWith(".gguf");
     }
 
-    /** 本地文件名带仓库前缀，避免不同仓库的同名文件互相覆盖。 */
+    /** 本地文件名带仓库前缀，避免不同仓库的同名文件互相覆盖；同时限制总长度，避免超出文件名上限。 */
+    private String localPathOf(ModelFile f) {
+        String fileName = (owner + "_" + name + "__" + f.displayName())
+                .replace('/', '_').replace('\\', '_');
+        if (fileName.length() > 120) {
+            // 保留结尾（扩展名与量化标识最有辨识度），前面用哈希前缀避免同名
+            String tail = fileName.substring(fileName.length() - 80);
+            fileName = Integer.toHexString(fileName.hashCode()) + "__" + tail;
+        }
+        return store.fileOf(fileName).getAbsolutePath();
+    }
+
     private LocalModel localModelOf(ModelFile f) {
         LocalModel m = new LocalModel();
         m.repoOwner = owner;
@@ -250,9 +261,7 @@ public class DetailActivity extends AppCompatActivity implements DownloadCenter.
         m.filePath = f.path;
         m.displayName = f.displayName();
         m.size = f.size;
-        String fileName = (owner + "_" + name + "__" + f.displayName())
-                .replace('/', '_').replace('\\', '_');
-        m.localPath = store.fileOf(fileName).getAbsolutePath();
+        m.localPath = localPathOf(f);
         return m;
     }
 
@@ -272,14 +281,22 @@ public class DetailActivity extends AppCompatActivity implements DownloadCenter.
         }
     }
 
+    /**
+     * 刷新某一行。文件名规则与 {@link #localModelOf} 必须一致（下标是 O(1) 的字符串运算），
+     * 不能在渲染路径里 new 一堆 LocalModel —— 那是每秒数次调用、文件列表几十行的按钮回调。
+     */
     private void notifyFile(LocalModel m) {
         int idx = indexOfLocal(m.localPath);
-        if (idx >= 0) fileAdapter.notifyItemChanged(idx);
+        if (idx >= 0) {
+            fileAdapter.notifyItemChanged(idx);
+        } else {
+            fileAdapter.notifyDataSetChanged();
+        }
     }
 
     private int indexOfLocal(String localPath) {
         for (int i = 0; i < files.size(); i++) {
-            if (localModelOf(files.get(i)).localPath.equals(localPath)) return i;
+            if (localPath.equals(localPathOf(files.get(i)))) return i;
         }
         return -1;
     }
@@ -349,8 +366,8 @@ public class DetailActivity extends AppCompatActivity implements DownloadCenter.
             }
 
             final LocalModel m = localModelOf(f);
-            final boolean downloaded = new File(m.localPath).exists();
-            final DownloadCenter.Task task = downloads.task(m.localPath);
+            final boolean downloaded = new File(localPathOf(f)).exists();
+            final DownloadCenter.Task task = downloads.task(localPathOf(f));
 
             if (downloaded) {
                 h.progress.setVisibility(View.GONE);
@@ -362,7 +379,7 @@ public class DetailActivity extends AppCompatActivity implements DownloadCenter.
                 h.progress.setVisibility(View.VISIBLE);
                 if (pct >= 0) h.progress.setProgress(pct, true);
                 h.download.setOnClickListener(v -> {
-                    downloads.cancel(m.localPath);
+                    downloads.cancel(localPathOf(f));
                     Toast.makeText(DetailActivity.this, R.string.dl_cancelled, Toast.LENGTH_SHORT).show();
                     notifyFile(m);
                 });

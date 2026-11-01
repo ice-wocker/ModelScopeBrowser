@@ -80,11 +80,17 @@ public class HtmlPreviewActivity extends AppCompatActivity {
         s.setSupportZoom(true);
         s.setBuiltInZoomControls(true);
         s.setDisplayZoomControls(false);
-        // 本地预览需要放开 file:// 访问（只影响本页面加载的工作区内资源，不联网）
+        // 本地预览需要 file:// 访问能力（页面里的相对资源都在 file:// 下）。
+        //
+        // 但**不能**开 allowUniversalAccessFromFileURLs：那等于允许 file:// 页面发起跨域请求，
+        // 而这里渲染的正是模型生成的 HTML —— 一段 fetch('file:///data/data/.../chats.json')
+        // 就能把对话历史 / 索引文件读出来，再 POST 到任意地址（应用本身有 INTERNET 权限）。
+        // 关掉它之后，file:// 页面无法用 XHR/fetch 读取本机文件，也无法跨源读取外网内容；
+        // 相对路径的 <img>/<script>/<link> 仍然正常，网页预览的核心需求不受影响。
+        s.setAllowContentAccess(false);            // 预览页不需要 content:// 资源
         s.setAllowFileAccess(true);
-        s.setAllowContentAccess(true);
-        s.setAllowFileAccessFromFileURLs(true);
-        s.setAllowUniversalAccessFromFileURLs(true);
+        s.setAllowFileAccessFromFileURLs(false);
+        s.setAllowUniversalAccessFromFileURLs(false);
 
         webView.setWebChromeClient(new WebChromeClient() {
             @Override

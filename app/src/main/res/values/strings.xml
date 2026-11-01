@@ -80,6 +80,7 @@
     <string name="dl_notif_title">正在下载模型</string>
     <string name="dl_notif_running">正在下载…</string>
     <string name="dl_notif_progress">%1$s（%2$d%%）</string>
+    <string name="dl_notif_progress_speed">%1$s · %2$d%% · %3$s</string>
 
     <string name="chat_title">对话</string>
     <string name="chat_hint">输入消息，点右侧按钮发送…</string>
@@ -146,6 +147,7 @@
     <string name="agent_deny">拒绝</string>
     <string name="agent_allow_all">本会话都允许</string>
     <string name="agent_denied">用户拒绝了这次操作，请换一种方式，或直接说明无法完成。</string>
+    <string name="agent_cancelled">用户已停止本轮操作，该工具未执行。</string>
     <string name="agent_max_rounds">已达到单轮工具调用上限（%1$d 步），先给出当前结论。</string>
     <string name="chat_searching">正在联网检索…</string>
     <string name="chat_tool_search">联网搜索</string>
@@ -192,6 +194,7 @@
     <string name="term_run">执行</string>
     <string name="term_clear">清屏</string>
     <string name="term_last">上一条</string>
+    <string name="term_trimmed">…（输出过多，较早的内容已省略）</string>
     <string name="term_ready">本机终端已就绪（/system/bin/sh，工作目录=工作区）。试试 ls、pwd、cat 文件。</string>
     <string name="preview_title">网页预览</string>
     <string name="preview_open_browser">浏览器打开</string>

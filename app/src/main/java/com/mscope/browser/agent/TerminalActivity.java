@@ -36,6 +36,10 @@ public class TerminalActivity extends AppCompatActivity {
     private TextView out;
     private EditText input;
     private ScrollView scroll;
+    /** 输出缓冲上限：终端是长期停留的页面，不设上限时 `cat` 一个大文件就会把整个 Activity 撑爆。 */
+    private static final int MAX_BUFFER_CHARS = 200 * 1024;
+    /** 截断时一次丢掉的量，避免每行都做一次搬移。 */
+    private static final int TRIM_CHARS = 60 * 1024;
     private final SpannableStringBuilder buffer = new SpannableStringBuilder();
     private final List<String> history = new ArrayList<>();
     private int historyPos = 0;
@@ -121,11 +125,25 @@ public class TerminalActivity extends AppCompatActivity {
     }
 
     private void appendLine(String text, int colorRes) {
+        final String line = text == null ? "" : text;
+        // 单条输出也可能超长（比如 cat 了一个几 MB 的文件），先按上限自己截一段
+        final String clipped = line.length() > MAX_BUFFER_CHARS
+                ? line.substring(line.length() - MAX_BUFFER_CHARS) : line;
         int start = buffer.length();
-        buffer.append(text == null ? "" : text).append('\n');
+        buffer.append(clipped).append('\n');
         buffer.setSpan(new ForegroundColorSpan(ContextCompat.getColor(this, colorRes)),
                 start, buffer.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+        trimIfNeeded();
         setText();
+    }
+
+    /** 超出上限时从头丢掉一段（连同 span 一起删，SpannableStringBuilder 会自动平移剩余 span）。 */
+    private void trimIfNeeded() {
+        final int over = buffer.length() - MAX_BUFFER_CHARS;
+        if (over <= 0) return;
+        final int cut = Math.min(buffer.length(), over + TRIM_CHARS);
+        buffer.delete(0, cut);
+        buffer.insert(0, getString(R.string.term_trimmed) + '\n');
     }
 
     private void setText() {

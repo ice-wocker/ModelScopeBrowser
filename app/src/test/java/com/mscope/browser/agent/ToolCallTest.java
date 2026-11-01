@@ -236,6 +236,31 @@ public class ToolCallTest {
 
     /* ------------------------------------------------------------ 思考块 */
 
+    /* -------------------------------------------- 流式渲染 / 回灌上下文用到的剥离 */
+
+    /** 流式过程中「已输出一半」的标签（还没闭合）也不能漏出来给用户看。 */
+    @Test
+    public void stripHandlesHalfWrittenToolTag() {
+        String partial = "我先看看目录\n<function name=\"list_files\"><param name=\"path\">.";
+        String visible = ToolCall.strip(partial, KNOWN);
+        assertFalse(visible.contains("function"));
+        assertTrue(visible.contains("我先看看目录"));
+    }
+
+    /** 未闭合的思考块（生成被 maxTokens 截断）要整段丢掉，不能当正文显示。 */
+    @Test
+    public void stripsUnclosedThinking() {
+        assertEquals("", ToolCall.stripThinking(TL + "想到一半就断了").trim());
+        assertEquals("结论", ToolCall.stripThinking(TL + "想完了" + TR + "结论").trim());
+    }
+
+    /** 回灌上下文时会先剥离，再判断是否为空：只有工具调用的回复不应该污染历史。 */
+    @Test
+    public void strippedReplyCanBeEmpty() {
+        String onlyCall = "<function name=\"list_files\"><param name=\"path\">.</param></function>";
+        assertEquals("", ToolCall.strip(onlyCall, KNOWN).trim());
+    }
+
     @Test
     public void stripsThinkingBlocks() {
         assertEquals("答案", ToolCall.stripThinking(TL + "内心戏" + TR + "答案").trim());
