@@ -59,7 +59,7 @@ rather than hidden.
 
 | Item | Value |
 |---|---|
-| Current version | **v2.6.0** (versionCode 14) |
+| Current version | **v2.7.0** (versionCode 15) |
 | Supported OS | Android 7.0 (API 24) – Android 16 (API 36) |
 | ABI | arm64-v8a (instruction-set tiers), armeabi-v7a (single static build) |
 | Inference backend | llama.cpp `b11205`, CPU only |

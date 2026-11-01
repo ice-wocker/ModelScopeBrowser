@@ -54,7 +54,7 @@
 
 | 项 | 值 |
 |---|---|
-| 当前版本 | **v2.6.0**（versionCode 14） |
+| 当前版本 | **v2.7.0**（versionCode 15） |
 | 支持系统 | Android 7.0 (API 24) ~ Android 16 (API 36) |
 | ABI | arm64-v8a（多档指令集）、armeabi-v7a（单档静态） |
 | 推理后端 | llama.cpp `b11205`，纯 CPU |
