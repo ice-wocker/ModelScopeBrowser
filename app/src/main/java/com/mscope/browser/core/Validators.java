@@ -1,5 +1,7 @@
 package com.mscope.browser.core;
 
+import com.mscope.browser.i18n.Lang;
+
 import java.util.Locale;
 import java.util.regex.Pattern;
 
@@ -43,11 +45,16 @@ public final class Validators {
      * <p>顺序很重要：先定上下文，再让输出上限去适配它。
      */
     public static String normalize(Sampling s) {
+        return normalize(s, Lang.zh());
+    }
+
+    /** 同 {@link #normalize(Sampling)}，可显式指定文案语言（便于单测与切换语言后立即重算）。 */
+    public static String normalize(Sampling s, boolean zh) {
         if (s == null) return "";
         StringBuilder notes = new StringBuilder();
         int ctx = clamp(s.nCtx, CTX_MIN, CTX_MAX);
         if (ctx != s.nCtx) {
-            notes.append("上下文收敛到 ").append(ctx).append("；");
+            notes.append(zh ? "上下文收敛到 " + ctx + "；" : "context clamped to " + ctx + "; ");
             s.nCtx = ctx;
         }
         int max = clamp(s.maxTokens, 1, MAX_TOKENS_MAX);
@@ -55,31 +62,38 @@ public final class Validators {
         int cap = Math.max(64, ctx * 3 / 4);
         if (max > cap) {
             max = cap;
-            notes.append("输出上限压到上下文的 3/4（").append(cap).append("）；");
+            notes.append(zh
+                    ? "输出上限压到上下文的 3/4（" + cap + "）；"
+                    : "max tokens capped at 3/4 of context (" + cap + "); ");
         }
         if (max != s.maxTokens) {
             s.maxTokens = max;
         }
         float temp = clamp(s.temp, 0f, TEMP_MAX);
         if (temp != s.temp) {
-            notes.append("temperature 收敛到 ").append(fmt(temp)).append("；");
+            notes.append(zh
+                    ? "temperature 收敛到 " + fmt(temp) + "；"
+                    : "temperature clamped to " + fmt(temp) + "; ");
             s.temp = temp;
         }
         // 温度极低的贪心采样 + top-k 0 会让分布退化，至少留 1
         int topK = clamp(s.topK, 0, 200);
         if (temp <= 0.01f && topK == 0) {
             topK = 1;
-            notes.append("贪心采样下 top-k 至少为 1；");
+            notes.append(zh ? "贪心采样下 top-k 至少为 1；" : "greedy sampling needs top-k >= 1; ");
         }
         if (topK != s.topK) s.topK = topK;
         float topP = clamp(s.topP, 0f, 1f);
         if (topP <= 0f) {
             topP = 1f;
-            notes.append("top-p 必须大于 0，已改回 1；");
+            notes.append(zh ? "top-p 必须大于 0，已改回 1；" : "top-p must be > 0, reset to 1; ");
         }
         if (topP != s.topP) s.topP = topP;
-        String out = notes.toString();
-        return out.isEmpty() ? "" : out.substring(0, out.length() - 1);
+        String out = notes.toString().trim();
+        // 去掉末尾的分隔符（中文「；」/ 英文「;」）
+        if (out.endsWith("；")) out = out.substring(0, out.length() - 1);
+        if (out.endsWith(";")) out = out.substring(0, out.length() - 1);
+        return out.trim();
     }
 
     public static int clamp(int v, int min, int max) {

@@ -1,5 +1,7 @@
 package com.mscope.browser.core;
 
+import com.mscope.browser.i18n.Lang;
+
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -93,7 +95,7 @@ public final class FsKit {
                 bos.write(buf, 0, n);
             }
             String s = new String(bos.toByteArray(), StandardCharsets.UTF_8);
-            return truncated ? s + "\n…（内容过长，已截断）" : s;
+            return truncated ? s + (Lang.zh() ? "\n…（内容过长，已截断）" : "\n… (truncated: too long)") : s;
         } catch (IOException e) {
             return "";
         }
@@ -123,24 +125,32 @@ public final class FsKit {
      * 魔搭在鉴权失败时可能返回一个 HTML 错误页并命名为 .gguf。
      */
     public static Magic sniff(File f) {
-        if (f == null || !f.isFile()) return new Magic("missing", "文件不存在", false);
+        boolean zh = Lang.zh();
+        if (f == null || !f.isFile()) return new Magic("missing", zh ? "文件不存在" : "file not found", false);
         byte[] head = new byte[16];
         int n;
         try (InputStream in = new FileInputStream(f)) {
             n = in.read(head);
         } catch (IOException e) {
-            return new Magic("unreadable", "无法读取", false);
+            return new Magic("unreadable", zh ? "无法读取" : "unreadable", false);
         }
-        if (n <= 0) return new Magic("empty", "空文件", false);
+        if (n <= 0) return new Magic("empty", zh ? "空文件" : "empty file", false);
         String text = new String(head, 0, Math.min(n, 12), StandardCharsets.ISO_8859_1).trim();
         String lower = text.toLowerCase(Locale.ROOT);
-        if (startsWith(head, n, MAGIC_GGUF)) return new Magic("gguf", "GGUF 模型文件", true);
-        if (startsWith(head, n, MAGIC_ZIP)) return new Magic("zip", "ZIP / APK / GGUF 打包", false);
-        if (startsWith(head, n, MAGIC_SQLITE)) return new Magic("sqlite", "SQLite 数据库", false);
-        if (lower.startsWith("<!doctype") || lower.startsWith("<html") || lower.startsWith("{")) {
-            return new Magic("text", "网页或 JSON（多半是错误响应）", false);
+        if (startsWith(head, n, MAGIC_GGUF)) {
+            return new Magic("gguf", zh ? "GGUF 模型文件" : "GGUF model file", true);
         }
-        return new Magic("unknown", "未知类型", false);
+        if (startsWith(head, n, MAGIC_ZIP)) {
+            return new Magic("zip", zh ? "ZIP / APK / GGUF 打包" : "ZIP / APK / GGUF archive", false);
+        }
+        if (startsWith(head, n, MAGIC_SQLITE)) {
+            return new Magic("sqlite", zh ? "SQLite 数据库" : "SQLite database", false);
+        }
+        if (lower.startsWith("<!doctype") || lower.startsWith("<html") || lower.startsWith("{")) {
+            return new Magic("text",
+                    zh ? "网页或 JSON（多半是错误响应）" : "web page or JSON (likely an error response)", false);
+        }
+        return new Magic("unknown", zh ? "未知类型" : "unknown type", false);
     }
 
     private static boolean startsWith(byte[] buf, int len, byte[] magic) {

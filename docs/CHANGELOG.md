@@ -1,6 +1,52 @@
 # 更新日志
 
+> 🌐 语言 / Language: 中文 · [English](CHANGELOG.en.md)
+
 完整历史。按时间倒序。
+
+## v2.6.0 — 中英双语
+
+### 界面与文案
+
+- **默认语言改为英文**：`values/strings.xml` 全量改写为英文，中文迁到 `values-zh/strings.xml`（216 条逐条对应）。
+  原因很简单：`values` 是兜底目录，放中文等于让所有没被 `values-xx` 覆盖的语言都看中文。
+- **Lint 开回 `MissingTranslation`**（此前一直关着）：漏译、多余项都会让 `lintDebug` 失败，双语从此是硬约束，不是自觉。
+- **应用内语言切换**：「关于 → 语言」，可选跟随系统 / 中文 / English。用 `LocaleManager` 在
+  `attachBaseContext` 里换 Configuration，切换后 `recreate()`，**不重启进程**——已加载进内存的模型和正在进行的下载都不会丢。
+
+### 代码里的文案（不在资源里的那些）
+
+- 新增 `i18n/Lang`：提示词、工具说明、工具执行结果、错误与建议，凡是拿不到 `Context` 的文案统一走它；
+  每个 Activity 绑定语言时同步它，**界面语言与模型语言永远是同一个**。
+- `PromptTemplate` 四种预设各出中英两版，英文版不是直译：同样短句、少从句，并要求「用用户的语言回答」。
+- `AgentTools.describe/exec`、`WebSearch`、`Workspace`、`Shell`、`LlamaEngine`、`DownloadCenter` 的文案全部双语。
+- `Validators`、`StorageGuard`、`PerfStats`、`MemoryBudget`、`FsKit` 增加 `boolean zh` 重载，纯逻辑层依旧零 Android 依赖。
+
+### 本地化细节
+
+- `Format.count` 不再固定中文：中文按「万 / 亿」，英文按 `K / M`——单位要整套换，只换符号等于没本地化。
+- `ModelApi.facetLabel`、工具卡片标题、消息导出前缀、性能统计行全部走资源。
+- 排序选项从 static 数组改为资源 id，避免在语言未定时被固化。
+
+### 测试
+
+- 新增 `core/Bi18nTest`（11 个用例）：每个预设两种语言都非空且不串味、工具说明分段双语、
+  参数收敛的数值结论与语言无关、`Lang` 跟随系统与显式覆盖的优先级。
+- `FormatTest` 补英文 `K/M` 断言；原有断言中文文案的用例显式 `Lang.setChinese(true)` 钉住语言，
+  避免在英文 CI 机器上出现「看起来功能坏了」的假失败。
+- 单测 87 → **99 个，全绿**。
+
+### 文档（v2.6.0 补齐）
+
+- 新增 `docs/README.en.md`：完整手册英文版（12 章 + API 速查 + 术语表）。
+- 新增 `docs/MODULES.en.md`、`docs/ARCHITECTURE.en.md`、`docs/DEVELOPING.en.md`、
+  `docs/TROUBLESHOOTING.en.md`、`docs/FAQ.en.md`、`docs/BENCHMARKS.en.md`、`docs/DIAGRAMS.en.md`、
+  `docs/CHANGELOG.en.md`：全部 10 份长文档中英双语，每页顶部可互切。
+- `docs/POSTER.md` 的说明文字改英文（图片内嵌，单文件可离线看）。
+- `README.md` 与 `README.en.md` 的文档表改成「中文 / English」两列。
+- 版本号 `versionCode 13 → 14`，`versionName 2.5.0 → 2.6.0`。
+
+---
 
 ## v2.5.0 — 补齐「该有但一直没有」的东西
 

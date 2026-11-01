@@ -1,5 +1,7 @@
 # 架构与数据流
 
+> 🌐 Language / 语言: 中文 · [English](ARCHITECTURE.en.md)
+
 本文把「一次点击到一次回答」的完整路径拆开。想看行为说明去 `README.md`，
 想看正在踩的坑去 [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md)。
 

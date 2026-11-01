@@ -12,8 +12,8 @@ android {
         applicationId "com.mscope.browser"
         minSdk 24
         targetSdk 36
-        versionCode 13
-        versionName "2.5.0"
+        versionCode 14
+        versionName "2.6.0"
 
         ndk {
             // 只打包真机常见 ABI，控制 APK 体积与编译时间
@@ -82,7 +82,9 @@ android {
         abortOnError true
         checkReleaseBuilds true
         // 这些检查对本项目意义不大/误报多，关掉以免阻断构建
-        disable 'GoogleAppIndexingWarning', 'MissingTranslation'
+        disable 'GoogleAppIndexingWarning'
+        // 双语是硬要求：values（英文）与 values-zh 必须逐条对齐，
+        // MissingTranslation 堵漏译、ExtraTranslation 堵多余项，两个都不能关。
     }
 
     testOptions {

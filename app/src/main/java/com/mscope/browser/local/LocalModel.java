@@ -1,6 +1,7 @@
 package com.mscope.browser.local;
 
 import com.mscope.browser.Format;
+import com.mscope.browser.i18n.Lang;
 
 import java.util.Locale;
 
@@ -36,7 +37,8 @@ public class LocalModel {
         if (displayName != null && !displayName.isEmpty()) return displayName;
         int i = filePath.lastIndexOf('/');
         String n = i >= 0 ? filePath.substring(i + 1) : filePath;
-        return n.isEmpty() ? "本地模型" : n;
+        // 这里返回的是用户已经在看的文件名，只在完全空的时候才需要兜底文案
+        return n.isEmpty() ? (Lang.zh() ? "本地模型" : "Local model") : n;
     }
 
     public String sizeText() {

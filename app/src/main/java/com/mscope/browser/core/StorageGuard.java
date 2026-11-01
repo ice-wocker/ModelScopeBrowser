@@ -1,5 +1,7 @@
 package com.mscope.browser.core;
 
+import com.mscope.browser.i18n.Lang;
+
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -67,30 +69,56 @@ public final class StorageGuard {
      * @param alreadyHave  本地已有的字节（续传进度，仅用于文案）
      */
     public static Check check(long freeBytes, long needBytes, long alreadyHave) {
+        return check(freeBytes, needBytes, alreadyHave, Lang.zh());
+    }
+
+    public static Check check(long freeBytes, long needBytes, long alreadyHave, boolean zh) {
         long need = Math.max(0, needBytes);
         if (freeBytes < HARD_FLOOR_BYTES) {
-            return new Check(Verdict.CRITICAL, need, freeBytes, String.format(Locale.ROOT,
+            return new Check(Verdict.CRITICAL, need, freeBytes, zh
+                    ? String.format(Locale.ROOT,
                     "存储几乎满了：仅剩 %s，至少要留 %s 才能继续下载。请先删掉不用的模型。",
-                    human(freeBytes), human(HARD_FLOOR_BYTES)));
+                    human(freeBytes, true), human(HARD_FLOOR_BYTES, true))
+                    : String.format(Locale.ROOT,
+                    "Storage almost full: only %s left, at least %s is required to download. "
+                            + "Delete models you no longer use first.",
+                    human(freeBytes, false), human(HARD_FLOOR_BYTES, false)));
         }
         if (need == 0) {
-            return new Check(Verdict.OK, 0, freeBytes, "无需额外空间");
+            return new Check(Verdict.OK, 0, freeBytes, zh ? "无需额外空间" : "No extra space needed");
         }
         if (freeBytes < need + SAFETY_BYTES) {
             if (freeBytes < need) {
-                return new Check(Verdict.INSUFFICIENT, need, freeBytes, String.format(Locale.ROOT,
-                        "空间不足：需要 %s，可用 %s，还差 %s。",
-                        human(need), human(freeBytes), human(need - freeBytes)));
+                return new Check(Verdict.INSUFFICIENT, need, freeBytes, zh
+                        ? String.format(Locale.ROOT, "空间不足：需要 %s，可用 %s，还差 %s。",
+                        human(need, true), human(freeBytes, true), human(need - freeBytes, true))
+                        : String.format(Locale.ROOT, "Not enough space: %s required, %s available, %s short.",
+                        human(need, false), human(freeBytes, false), human(need - freeBytes, false)));
             }
-            return new Check(Verdict.TIGHT, need, freeBytes, String.format(Locale.ROOT,
+            return new Check(Verdict.TIGHT, need, freeBytes, zh
+                    ? String.format(Locale.ROOT,
                     "空间紧张：下载后仅剩 %s（建议保留 %s 以上）。也可先删掉不用的模型。",
-                    human(freeBytes - need), human(SAFETY_BYTES)));
+                    human(freeBytes - need, true), human(SAFETY_BYTES, true))
+                    : String.format(Locale.ROOT,
+                    "Tight on space: only %s would remain after download (keep at least %s free). "
+                            + "Consider deleting unused models first.",
+                    human(freeBytes - need, false), human(SAFETY_BYTES, false)));
+        }
+        if (zh) {
+            String extra = alreadyHave > 0
+                    ? String.format(Locale.ROOT, "（已下载 %s，本次仍需 %s）", human(alreadyHave, true), human(need, true))
+                    : "";
+            return new Check(Verdict.OK, need, freeBytes,
+                    String.format(Locale.ROOT, "空间充足：可用 %s，需要 %s%s",
+                            human(freeBytes, true), human(need, true), extra));
         }
         String extra = alreadyHave > 0
-                ? String.format(Locale.ROOT, "（已下载 %s，本次仍需 %s）", human(alreadyHave), human(need))
+                ? String.format(Locale.ROOT, " (%s already downloaded, %s still needed)",
+                human(alreadyHave, false), human(need, false))
                 : "";
         return new Check(Verdict.OK, need, freeBytes,
-                String.format(Locale.ROOT, "空间充足：可用 %s，需要 %s%s", human(freeBytes), human(need), extra));
+                String.format(Locale.ROOT, "Enough space: %s available, %s required%s",
+                        human(freeBytes, false), human(need, false), extra));
     }
 
     /** 目标目录所在分区剩余字节；拿不到时返回 -1。 */
@@ -195,6 +223,10 @@ public final class StorageGuard {
 
     /** 体检结论汇总成一句人话；没问题时返回空串。 */
     public static String summarize(List<Finding> findings) {
+        return summarize(findings, Lang.zh());
+    }
+
+    public static String summarize(List<Finding> findings, boolean zh) {
         if (findings == null || findings.isEmpty()) return "";
         int ghost = 0, orphan = 0, empty = 0;
         long waste = 0;
@@ -209,15 +241,29 @@ public final class StorageGuard {
             }
         }
         List<String> parts = new ArrayList<>();
-        if (ghost > 0) parts.add(ghost + " 条记录找不到文件");
-        if (orphan > 0) parts.add(orphan + " 个文件没被索引（可回收 " + human(waste) + "）");
-        if (empty > 0) parts.add(empty + " 个空文件");
-        return "本地模型库体检：" + String.join("；", parts);
+        if (ghost > 0) {
+            parts.add(zh ? ghost + " 条记录找不到文件" : ghost + " entries with missing file");
+        }
+        if (orphan > 0) {
+            parts.add(zh
+                    ? orphan + " 个文件没被索引（可回收 " + human(waste, true) + "）"
+                    : orphan + " unindexed files (" + human(waste, false) + " reclaimable)");
+        }
+        if (empty > 0) {
+            parts.add(zh ? empty + " 个空文件" : empty + " empty files");
+        }
+        String joined = String.join(zh ? "；" : "; ", parts);
+        return zh ? "本地模型库体检：" + joined : "Local model library check: " + joined;
     }
 
     /** 人类可读体积。刻意不复用 Format，避免 UI 依赖。 */
     public static String human(long b) {
-        if (b < 0) return "未知";
+        return human(b, Lang.zh());
+    }
+
+    /** 人类可读体积。刻意不复用 Format，避免 UI 依赖。 */
+    public static String human(long b, boolean zh) {
+        if (b < 0) return zh ? "未知" : "unknown";
         if (b < 1024) return b + " B";
         double kb = b / 1024d;
         if (kb < 1024) return String.format(Locale.ROOT, "%.0f KB", kb);

@@ -12,7 +12,6 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
-import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -31,9 +30,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import com.mscope.browser.i18n.BaseActivity;
+import com.mscope.browser.i18n.Lang;
 
 /** 本地模型库：查看已下载的 GGUF、占用空间，一键进入离线对话或删除。 */
-public class LocalModelsActivity extends AppCompatActivity implements DownloadCenter.Listener {
+public class LocalModelsActivity extends BaseActivity implements DownloadCenter.Listener {
 
     private LocalModelStore store;
     private DownloadCenter downloads;
@@ -145,7 +146,7 @@ public class LocalModelsActivity extends AppCompatActivity implements DownloadCe
                     existing.add(new StorageGuard.Entry(f.getAbsolutePath(), f.length()));
                 }
             }
-            return StorageGuard.summarize(StorageGuard.audit(entries, existing));
+            return StorageGuard.summarize(StorageGuard.audit(entries, existing), Lang.zh());
         } catch (Throwable t) {
             return "";
         }

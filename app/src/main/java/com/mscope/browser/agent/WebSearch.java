@@ -1,6 +1,7 @@
 package com.mscope.browser.agent;
 
 import com.mscope.browser.core.Validators;
+import com.mscope.browser.i18n.Lang;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -62,8 +63,10 @@ public class WebSearch {
             last = e;
         }
         try {
+            // setlang 决定 Bing 结果页的语言；跟随界面语言，别让英文用户拿到中文摘要
             List<Result> r = parseBing(fetch("https://www.bing.com/search?q="
-                    + URLEncoder.encode(query, "UTF-8") + "&setlang=zh-CN"), limit);
+                    + URLEncoder.encode(query, "UTF-8")
+                    + (Lang.zh() ? "&setlang=zh-CN" : "&setlang=en-US")), limit);
             if (!r.isEmpty()) return r;
         } catch (IOException e) {
             last = e;
@@ -74,7 +77,9 @@ public class WebSearch {
 
     /** 把结果整理成 markdown，既用于注入模型上下文，也用于界面上的工具卡片。 */
     public static String format(List<Result> results) {
-        if (results == null || results.isEmpty()) return "（没有检索到结果）";
+        if (results == null || results.isEmpty()) {
+            return Lang.zh() ? "（没有检索到结果）" : "(no results)";
+        }
         StringBuilder sb = new StringBuilder();
         int i = 1;
         for (Result r : results) {
@@ -90,11 +95,18 @@ public class WebSearch {
         // 抓回来的正文会原样回灌进模型上下文，所以按「完整字符」截断，
         // 不能把 emoji / 生僻字切成半个 surrogate。
         String safe = Validators.safeUrl(url);
-        if (safe == null) return "错误：url 必须是 http/https 开头的完整地址";
+        if (safe == null) {
+            return Lang.zh() ? "错误：url 必须是 http/https 开头的完整地址"
+                    : "error: url must be a full address starting with http/https";
+        }
         String text = text(fetch(safe));
-        if (text.isEmpty()) return "（页面没有可读文本，可能是纯脚本或需要登录的页面）";
+        if (text.isEmpty()) {
+            return Lang.zh() ? "（页面没有可读文本，可能是纯脚本或需要登录的页面）"
+                    : "(no readable text: the page may be script-only or require sign-in)";
+        }
         if (text.length() > maxChars) {
-            text = com.mscope.browser.core.TextKit.trimUtf8(text, maxChars * 3) + "\n…（内容过长，已截断）";
+            text = com.mscope.browser.core.TextKit.trimUtf8(text, maxChars * 3)
+                    + (Lang.zh() ? "\n…（内容过长，已截断）" : "\n… (truncated: too long)");
         }
         return text;
     }
@@ -123,7 +135,9 @@ public class WebSearch {
         c.setInstanceFollowRedirects(true);
         c.setRequestProperty("User-Agent", UA);
         c.setRequestProperty("Accept", "text/html,application/xhtml+xml");
-        c.setRequestProperty("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8");
+        c.setRequestProperty("Accept-Language", Lang.zh()
+                ? "zh-CN,zh;q=0.9,en;q=0.8"
+                : "en-US,en;q=0.9");
         int code = c.getResponseCode();
         InputStream is = code >= 400 ? c.getErrorStream() : c.getInputStream();
         if (is == null) throw new IOException("HTTP " + code);

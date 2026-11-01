@@ -286,21 +286,28 @@ public class ModelApi {
         return out;
     }
 
+    /**
+     * 筛选项的展示名。
+     *
+     * <p>接口给的 group 是固定的英文 key，所以这里必须有一层「key → 本地化名称」的映射；
+     * 认不出的 key 原样显示，总比显示空串好。
+     */
     public static String facetLabel(String group) {
         if (group == null) return "";
+        boolean zh = com.mscope.browser.i18n.Lang.zh();
         switch (group) {
             case "license":
-                return "许可证";
+                return zh ? "许可证" : "License";
             case "libraries":
-                return "框架库";
+                return zh ? "框架库" : "Library";
             case "tags":
-                return "标签";
+                return zh ? "标签" : "Tag";
             case "language":
-                return "语言";
+                return zh ? "语言" : "Language";
             case "model_type":
-                return "模型结构";
+                return zh ? "模型结构" : "Architecture";
             case "nexa_catalog":
-                return "领域";
+                return zh ? "领域" : "Domain";
             default:
                 return group;
         }

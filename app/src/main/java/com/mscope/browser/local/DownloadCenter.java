@@ -27,6 +27,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import com.mscope.browser.i18n.Lang;
+
 /**
  * 应用级下载中心：串行下载 GGUF（避免抢带宽），支持进度、取消、断点续传与完整性校验。
  *
@@ -211,7 +213,8 @@ public class DownloadCenter {
                 // 统一交给 StorageGuard：它同时考虑系统安全水位与「续传后仍需的字节数」，
                 // 并把结论写成一句人话（差多少 / 下载后还剩多少）。
                 long need = knownTotal - Math.max(0, t.done);
-                StorageGuard.Check check = StorageGuard.check(usable, need, Math.max(0, t.done));
+                StorageGuard.Check check =
+                        StorageGuard.check(usable, need, Math.max(0, t.done), Lang.zh());
                 if (!check.canStart()) throw new IllegalStateException(check.message);
                 if (check.shouldWarn()) Log.w(TAG, check.message);
             }
@@ -239,15 +242,19 @@ public class DownloadCenter {
             // ---- 完整性校验：长度 + GGUF 魔数 ----
             final long len = part.length();
             if (t.total > 0 && len != t.total) {
-                throw new IllegalStateException("文件不完整 " + len + "/" + t.total);
+                throw new IllegalStateException(Lang.zh()
+                        ? "文件不完整 " + len + "/" + t.total
+                        : "incomplete file " + len + "/" + t.total);
             }
-            if (!isGguf(part)) throw new IllegalStateException("不是有效的 GGUF 文件");
+            if (!isGguf(part)) throw new IllegalStateException(Lang.zh()
+                    ? "不是有效的 GGUF 文件" : "not a valid GGUF file");
 
             if (dst.exists()) {
                 //noinspection ResultOfMethodCallIgnored
                 dst.delete();
             }
-            if (!part.renameTo(dst)) throw new IllegalStateException("重命名失败");
+            if (!part.renameTo(dst)) throw new IllegalStateException(Lang.zh()
+                    ? "重命名失败" : "rename failed");
 
             t.model.size = dst.length();
             t.model.localPath = dst.getAbsolutePath();

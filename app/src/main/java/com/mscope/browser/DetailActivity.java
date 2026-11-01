@@ -14,7 +14,6 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
-import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -35,9 +34,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import io.noties.markwon.Markwon;
+import com.mscope.browser.i18n.BaseActivity;
 
 /** 模型详情页：基本信息 + 模型文件（.gguf 可应用内下载并直接对话）+ Markdown 简介。 */
-public class DetailActivity extends AppCompatActivity implements DownloadCenter.Listener {
+public class DetailActivity extends BaseActivity implements DownloadCenter.Listener {
 
     public static final String EXTRA_OWNER = "owner";
     public static final String EXTRA_NAME = "name";

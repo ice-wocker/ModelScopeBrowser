@@ -23,7 +23,6 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
-import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -40,6 +39,7 @@ import com.mscope.browser.agent.WebSearch;
 import com.mscope.browser.agent.Workspace;
 import com.mscope.browser.agent.WorkspaceActivity;
 import com.mscope.browser.core.MarkdownOutline;
+import com.mscope.browser.i18n.Lang;
 import com.mscope.browser.core.MemoryBudget;
 import com.mscope.browser.core.PerfStats;
 import com.mscope.browser.core.PromptTemplate;
@@ -61,6 +61,7 @@ import io.noties.markwon.Markwon;
 import io.noties.markwon.core.MarkwonTheme;
 import io.noties.markwon.ext.strikethrough.StrikethroughPlugin;
 import io.noties.markwon.ext.tables.TablePlugin;
+import com.mscope.browser.i18n.BaseActivity;
 
 /**
  * 与本地 GGUF 模型对话：llama.cpp 流式生成、Markdown 渲染、可中断，历史会话自动持久化。
@@ -69,7 +70,7 @@ import io.noties.markwon.ext.tables.TablePlugin;
  * （本机终端 / 联网 / 工作区文件 / 网页预览）→ 结果回灌 → 模型继续推理，直到给出最终答案。
  * 工具协议见 {@link ToolCall}，执行见 {@link AgentTools}。写操作与本机命令会先征求用户确认。
  */
-public class ChatActivity extends AppCompatActivity {
+public class ChatActivity extends BaseActivity {
 
     private static final String EXTRA_PATH = "m_path";
     private static final String EXTRA_NAME = "m_name";
@@ -82,14 +83,15 @@ public class ChatActivity extends AppCompatActivity {
     private static final String KEY_SYS = "system";
     private static final String KEY_AGENT = "agent_mode";
     private static final String KEY_TOOL_WEB = "tool_web";
-    private static final String DEFAULT_SYS =
-            "你是一个运行在手机本地的中文 AI 助手，请用简体中文准确、简洁地回答。"
-                    + "涉及代码或网页时，请用带文件名的 Markdown 代码块输出，例如 ```html filename=index.html，"
-                    + "这样文件会自动保存到用户的工作区。";
-    /** 智能体模式下的默认提示词：不再要求「输出代码块」，而是鼓励直接用工具干活。 */
-    private static final String DEFAULT_SYS_AGENT =
-            "你是一个运行在手机本地的中文 AI 助手，可以调用工具在本机上完成实际任务。"
-                    + "请用简体中文准确、简洁地回答；需要动手时先调用工具，再根据真实结果作答。";
+    /**
+     * 默认系统提示词直接走 {@link PromptTemplate}，不再各写一份。
+     *
+     * <p>以前这类文案在 ChatActivity 里又抄了一遍，结果就是「模板改了、这里没改」，
+     * 而且语言切换后两份会不一致。现在只有一处真源。
+     */
+    private static String defaultSystem(boolean agent) {
+        return PromptTemplate.body(agent ? PromptTemplate.Preset.AGENT : PromptTemplate.Preset.GENERAL);
+    }
 
     /** 单轮对话里最多允许的工具调用轮数，防止模型反复空转。 */
     private static final int MAX_ROUNDS = 8;
@@ -149,7 +151,8 @@ public class ChatActivity extends AppCompatActivity {
     private ProgressBar loadProgress;
 
     private SharedPreferences prefs;
-    private String systemPrompt = DEFAULT_SYS;
+    /** 用户自定义的系统提示词；空串表示「用当前语言的默认模板」。 */
+    private String systemPrompt = "";
     private int nCtx = DEFAULT_CTX;
     /** 智能体模式：模型可自主调用工具，并在结果回灌后继续推理。 */
     private boolean agentMode;
@@ -201,7 +204,7 @@ public class ChatActivity extends AppCompatActivity {
         if (!prefs.contains(KEY_CTX)) {
             nCtx = autoCtx;
         }
-        systemPrompt = prefs.getString(KEY_SYS, DEFAULT_SYS);
+        systemPrompt = nz(prefs.getString(KEY_SYS, ""));
         agentMode = prefs.getBoolean(KEY_AGENT, true);
         toolWeb = prefs.getBoolean(KEY_TOOL_WEB, true);
 
@@ -225,7 +228,7 @@ public class ChatActivity extends AppCompatActivity {
         model.repoName = nz(getIntent().getStringExtra(EXTRA_REPO));
         model.filePath = nz(getIntent().getStringExtra(EXTRA_FILE));
         model.size = getIntent().getLongExtra(EXTRA_SIZE, 0);
-        if (model.displayName.isEmpty()) model.displayName = "本地模型";
+        if (model.displayName.isEmpty()) model.displayName = getString(R.string.local_model_fallback);
 
         MaterialToolbar toolbar = findViewById(R.id.cToolbar);
         toolbar.setNavigationOnClickListener(v -> finish());
@@ -412,7 +415,9 @@ public class ChatActivity extends AppCompatActivity {
 
     private void updateChipWeb() {
         chipWeb.setSelected(toolWeb);
-        chipWeb.setText(toolWeb ? getString(R.string.chat_web) + " · 开" : getString(R.string.chat_web));
+        chipWeb.setText(toolWeb
+                ? getString(R.string.chip_on, getString(R.string.chat_web))
+                : getString(R.string.chat_web));
     }
 
     private void toggleAgent() {
@@ -425,7 +430,9 @@ public class ChatActivity extends AppCompatActivity {
 
     private void updateChipAgent() {
         chipAgent.setSelected(agentMode);
-        chipAgent.setText(agentMode ? getString(R.string.chat_agent) + " · 开" : getString(R.string.chat_agent));
+        chipAgent.setText(agentMode
+                ? getString(R.string.chip_on, getString(R.string.chat_agent))
+                : getString(R.string.chat_agent));
     }
 
     private void openWorkspace() {
@@ -631,9 +638,8 @@ public class ChatActivity extends AppCompatActivity {
     private String buildSystemPrompt() {
         StringBuilder sb = new StringBuilder();
         String base = systemPrompt == null ? "" : systemPrompt.trim();
-        if (TextUtils.isEmpty(base) || DEFAULT_SYS.equals(base)) {
-            base = agentMode ? DEFAULT_SYS_AGENT : DEFAULT_SYS;
-        }
+        // 空串 = 没自定义过：用当前语言的默认模板（切换语言后自动跟上）
+        if (TextUtils.isEmpty(base)) base = defaultSystem(agentMode);
         PromptTemplate.Preset preset = agentMode ? PromptTemplate.Preset.AGENT : PromptTemplate.Preset.GENERAL;
         // 小模型（≤2.5B）容易被长提示词带跑偏，工具说明换成压缩版；工具清单照旧来自 AgentTools，
         // 免得「提示词说的工具」和「真的能执行的工具」两套东西对不上。
@@ -806,16 +812,17 @@ public class ChatActivity extends AppCompatActivity {
         });
     }
 
-    private static String toolTitle(String name) {
+    /** 工具卡片标题（本地化）；默认值就是工具名本身，保持可读但不误导。 */
+    private String toolTitle(String name) {
         switch (name) {
-            case "shell": return "终端命令";
-            case "web_search": return "联网搜索";
-            case "fetch_url": return "读取网页";
-            case "read_file": return "读取文件";
-            case "write_file": return "写入文件";
-            case "list_files": return "文件列表";
-            case "delete_file": return "删除文件";
-            case "open_preview": return "网页预览";
+            case "shell": return getString(R.string.tool_title_shell);
+            case "web_search": return getString(R.string.tool_title_web_search);
+            case "fetch_url": return getString(R.string.tool_title_fetch_url);
+            case "read_file": return getString(R.string.tool_title_read_file);
+            case "write_file": return getString(R.string.tool_title_write_file);
+            case "list_files": return getString(R.string.tool_title_list_files);
+            case "delete_file": return getString(R.string.tool_title_delete_file);
+            case "open_preview": return getString(R.string.tool_title_open_preview);
             default: return name;
         }
     }
@@ -959,7 +966,7 @@ public class ChatActivity extends AppCompatActivity {
             }
             case "preview": {
                 if (rest.isEmpty()) {
-                    addTool(getString(R.string.chat_tool_error), "error", "/preview <文件>");
+                    addTool(getString(R.string.chat_tool_error), "error", getString(R.string.cmd_preview_usage));
                     return;
                 }
                 try {
@@ -993,7 +1000,8 @@ public class ChatActivity extends AppCompatActivity {
 
         tools.execute(() -> {
             final Shell.Out out = shell.run(cmd);
-            final String text = out.text == null || out.text.isEmpty() ? "（无输出）" : out.text;
+            final String text = out.text == null || out.text.isEmpty()
+                    ? getString(R.string.term_no_output) : out.text;
             ui.post(() -> {
                 if (!alive || card >= messages.size()) return;
                 ChatMessage m = messages.get(card);
@@ -1345,13 +1353,13 @@ public class ChatActivity extends AppCompatActivity {
             return;
         }
         StringBuilder sb = new StringBuilder();
-        sb.append("最近 ").append(perf.size()).append(" 轮\n");
+        sb.append(getString(R.string.chat_stats_recent, perf.size())).append('\n');
         sb.append(perf.summary()).append("\n\n");
         List<PerfStats.Sample> list = perf.snapshot();
         for (int i = 0; i < list.size(); i++) {
             PerfStats.Sample sm = list.get(i);
-            sb.append(String.format(Locale.ROOT, "#%d  %d tokens · %.1f tok/s · 首字 %d ms%n",
-                    i + 1, sm.tokens, sm.tokensPerSec, sm.prefillMs));
+            sb.append(getString(R.string.chat_stats_row,
+                    i + 1, sm.tokens, sm.tokensPerSec, sm.prefillMs)).append('\n');
         }
         String advice = perf.advice();
         if (!advice.isEmpty()) sb.append('\n').append(advice);
@@ -1418,8 +1426,10 @@ public class ChatActivity extends AppCompatActivity {
         StringBuilder sb = new StringBuilder();
         for (ChatMessage m : messages) {
             if (TextUtils.isEmpty(m.content)) continue;
-            sb.append(m.isUser() ? "我" : (m.isTool() ? "工具" : model.displayName))
-              .append("：\n")
+            sb.append(m.isUser() ? getString(R.string.export_me)
+                            : (m.isTool() ? getString(R.string.export_tool) : model.displayName))
+              .append(getString(R.string.export_sep))
+              .append('\n')
               .append(m.content.trim())
               .append("\n\n");
         }
@@ -1451,8 +1461,9 @@ public class ChatActivity extends AppCompatActivity {
         if (ctxTip != null) {
             MemoryBudget.Snapshot mem = MemoryBudget.read();
             long size = model == null ? 0 : model.size;
-            String device = MemoryBudget.explain(mem, size, autoCtx);
-            ctxTip.setText(getString(R.string.p_ctx_tip) + "\n\n本机建议：" + device);
+            String device = MemoryBudget.explain(mem, size, autoCtx, Lang.zh());
+            ctxTip.setText(getString(R.string.p_ctx_tip) + "\n\n"
+                    + getString(R.string.p_ctx_device_tip, device));
         }
 
         new MaterialAlertDialogBuilder(this)

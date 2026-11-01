@@ -11,7 +11,6 @@ import android.webkit.WebViewClient;
 import android.widget.ProgressBar;
 import android.widget.Toast;
 
-import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.FileProvider;
 
 import com.google.android.material.appbar.MaterialToolbar;
@@ -19,9 +18,10 @@ import com.mscope.browser.R;
 import com.mscope.browser.Ui;
 
 import java.io.File;
+import com.mscope.browser.i18n.BaseActivity;
 
 /** 预览工作区里生成的 HTML：本地 file:// 加载，支持脚本、样式与相对资源。 */
-public class HtmlPreviewActivity extends AppCompatActivity {
+public class HtmlPreviewActivity extends BaseActivity {
 
     private static final String EXTRA_PATH = "ws_path";
 

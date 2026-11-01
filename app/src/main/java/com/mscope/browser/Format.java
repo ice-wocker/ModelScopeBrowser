@@ -28,10 +28,20 @@ public final class Format {
         return bytes <= 0 ? "-" : size(bytes);
     }
 
-    /** 大数缩写，如 1.2 万 / 3.4 亿。 */
+    /**
+     * 大数缩写：中文按「万 / 亿」，英文按「K / M」。
+     *
+     * <p>英文里写 "1.2亿" 没人看得懂，反过来也一样；所以这里不能只换单位符号，
+     * 得换整套进位方式。
+     */
     public static String count(long n) {
-        if (n >= 100000000L) return String.format(Locale.CHINA, "%.1f亿", n / 100000000.0);
-        if (n >= 10000L) return String.format(Locale.CHINA, "%.1f万", n / 10000.0);
+        if (com.mscope.browser.i18n.Lang.zh()) {
+            if (n >= 100000000L) return String.format(Locale.CHINA, "%.1f亿", n / 100000000.0);
+            if (n >= 10000L) return String.format(Locale.CHINA, "%.1f万", n / 10000.0);
+            return String.valueOf(n);
+        }
+        if (n >= 1000000L) return String.format(Locale.US, "%.1fM", n / 1000000.0);
+        if (n >= 1000L) return String.format(Locale.US, "%.1fK", n / 1000.0);
         return String.valueOf(n);
     }
 }

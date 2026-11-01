@@ -14,7 +14,6 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
-import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.DiffUtil;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -30,13 +29,16 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import com.mscope.browser.i18n.BaseActivity;
 
 /** 模型列表主界面：分页浏览 + 搜索 + 排序 + 按维度筛选。 */
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends BaseActivity {
 
     private static final int PAGE_SIZE = 20;
 
-    private static final String[] SORT_LABELS = {"综合排序", "最多下载", "最多收藏", "最近更新"};
+    /** 排序方式：文案不能在 static 初始化时定死（那时还没定语言），用资源 id 延迟取。 */
+    private static final int[] SORT_LABEL_RES = {
+            R.string.sort_default, R.string.sort_downloads, R.string.sort_stars, R.string.sort_updated};
     private static final String[] SORT_VALUES = {
             ModelApi.SORT_DEFAULT, ModelApi.SORT_DOWNLOADS, ModelApi.SORT_STARS, ModelApi.SORT_UPDATED};
 
@@ -148,6 +150,8 @@ public class MainActivity extends AppCompatActivity {
             new MaterialAlertDialogBuilder(this)
                     .setTitle(R.string.about)
                     .setMessage(getString(R.string.about_msg, versionName()))
+                    // 「关于」里放语言入口：切换靠 recreate()，当前页直接换语言
+                    .setNeutralButton(R.string.lang_title, (d, w) -> showLanguageDialog())
                     .setPositiveButton(android.R.string.ok, null)
                     .show();
             return true;
@@ -310,14 +314,20 @@ public class MainActivity extends AppCompatActivity {
 
     /* ----------------------------------------------------------- 排序 / 筛选 */
 
+    private String[] sortLabels() {
+        String[] out = new String[SORT_LABEL_RES.length];
+        for (int i = 0; i < out.length; i++) out[i] = getString(SORT_LABEL_RES[i]);
+        return out;
+    }
+
     private void showSortDialog() {
         new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.sort_title)
-                .setSingleChoiceItems(SORT_LABELS, sortIndex, (d, which) -> {
+                .setSingleChoiceItems(sortLabels(), sortIndex, (d, which) -> {
                     sortIndex = which;
                     sortBy = SORT_VALUES[which];
                     order = "desc";
-                    chipSort.setText(SORT_LABELS[which]);
+                    chipSort.setText(sortLabels()[which]);
                     d.dismiss();
                     startLoad(1, true);
                 })

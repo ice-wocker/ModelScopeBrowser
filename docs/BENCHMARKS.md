@@ -1,5 +1,7 @@
 # 性能数据与方法
 
+> 🌐 语言 / Language: 中文 · [English](BENCHMARKS.en.md)
+
 ![参数速查](assets/card-params.png)
 
 这一页只放**能复现**的数字，并写清怎么测的。手机端性能受散热、调度、后台负载影响极大，

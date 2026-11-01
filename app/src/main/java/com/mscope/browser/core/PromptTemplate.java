@@ -1,5 +1,7 @@
 package com.mscope.browser.core;
 
+import com.mscope.browser.i18n.Lang;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -30,22 +32,46 @@ public final class PromptTemplate {
     private PromptTemplate() {
     }
 
-    /** 模板正文（不含工具清单）。 */
+    /**
+     * 模板正文（不含工具清单）。
+     *
+     * <p>四种预设各有中英两版。英文版不是逐字直译：小模型对语言切换最敏感，
+     * 英文版同样保持短句、少从句，并且明确要求「用用户的语言回答」。
+     */
     public static String body(Preset preset) {
+        return body(preset, Lang.zh());
+    }
+
+    public static String body(Preset preset, boolean zh) {
         switch (preset == null ? Preset.GENERAL : preset) {
             case AGENT:
-                return "你是一个运行在手机本地的中文 AI 助手，可以调用工具在本机上完成实际任务。"
-                        + "请用简体中文准确、简洁地回答；需要动手时先调用工具，再根据真实结果作答。";
+                return zh
+                        ? "你是一个运行在手机本地的中文 AI 助手，可以调用工具在本机上完成实际任务。"
+                        + "请用简体中文准确、简洁地回答；需要动手时先调用工具，再根据真实结果作答。"
+                        : "You are an AI assistant running fully on the user's phone, able to call tools to "
+                        + "get real work done on the device. Answer accurately and concisely in the user's "
+                        + "language. When action is needed, call a tool first and answer from its real result.";
             case CODER:
-                return "你是一个运行在手机本地的编程助手，请用简体中文简要点评，代码放在带文件名的 "
-                        + "Markdown 代码块里输出，例如 ```html filename=index.html，这样会自动保存到工作区。";
+                return zh
+                        ? "你是一个运行在手机本地的编程助手，请用简体中文简要点评，代码放在带文件名的 "
+                        + "Markdown 代码块里输出，例如 ```html filename=index.html，这样会自动保存到工作区。"
+                        : "You are a coding assistant running locally on the phone. Keep comments brief and "
+                        + "in the user's language, and put code in fenced blocks that carry a file name, "
+                        + "e.g. ```html filename=index.html, so it is saved to the workspace automatically.";
             case MINIMAL:
-                return "你是手机本地助手。中文回答，简短直接。要动手就调用工具，拿到结果再答。";
+                return zh
+                        ? "你是手机本地助手。中文回答，简短直接。要动手就调用工具，拿到结果再答。"
+                        : "You are a local phone assistant. Answer briefly in the user's language. "
+                        + "Call a tool when action is needed, then answer from the result.";
             case GENERAL:
             default:
-                return "你是一个运行在手机本地的中文 AI 助手，请用简体中文准确、简洁地回答。"
+                return zh
+                        ? "你是一个运行在手机本地的中文 AI 助手，请用简体中文准确、简洁地回答。"
                         + "涉及代码或网页时，请用带文件名的 Markdown 代码块输出，例如 ```html filename=index.html，"
-                        + "这样文件会自动保存到用户的工作区。";
+                        + "这样文件会自动保存到用户的工作区。"
+                        : "You are an AI assistant running fully on the user's phone. Answer accurately and "
+                        + "concisely in the user's language. For code or web pages, use fenced blocks with a "
+                        + "file name, e.g. ```html filename=index.html, so the file is saved to the workspace.";
         }
     }
 
@@ -56,17 +82,35 @@ public final class PromptTemplate {
      * @param minimal  是否用压缩版（小模型）
      */
     public static String toolSection(String toolList, boolean minimal) {
+        return toolSection(toolList, minimal, Lang.zh());
+    }
+
+    public static String toolSection(String toolList, boolean minimal, boolean zh) {
+        String list = toolList == null ? "" : toolList.trim();
         if (minimal) {
-            return "\n\n要动手就输出：<function name=\"工具\"><param name=\"参数\">值</param></function>\n"
-                    + "可用：" + oneLine(toolList) + "\n"
-                    + "之后会收到 <tool_response> 结果，据此继续作答；不需要工具就直接回答。";
+            return zh
+                    ? "\n\n要动手就输出：<function name=\"工具\"><param name=\"参数\">值</param></function>\n"
+                    + "可用：" + oneLine(list) + "\n"
+                    + "之后会收到 <tool_response> 结果，据此继续作答；不需要工具就直接回答。"
+                    : "\n\nTo act, output: <function name=\"tool\"><param name=\"arg\">value</param></function>\n"
+                    + "Available: " + oneLine(list) + "\n"
+                    + "You will then receive a <tool_response> result; continue from it. "
+                    + "If no tool is needed, just answer.";
         }
-        return "\n\n你可以调用工具在手机本机上完成任务。需要实时信息或本机操作时，直接输出下面这种调用"
+        return zh
+                ? "\n\n你可以调用工具在手机本机上完成任务。需要实时信息或本机操作时，直接输出下面这种调用"
                 + "（不要用代码块包裹，一次可以输出多个）：\n\n"
                 + "<function name=\"工具名\"><param name=\"参数名\">参数值</param></function>\n\n"
-                + "可用工具：\n" + (toolList == null ? "" : toolList.trim()) + "\n"
+                + "可用工具：\n" + list + "\n"
                 + "调用后会收到一条 <tool_response> 结果（里面是真实执行结果），然后据此继续作答；"
-                + "不需要工具时直接回答，不要输出调用。";
+                + "不需要工具时直接回答，不要输出调用。"
+                : "\n\nYou can call tools to complete tasks on the user's phone. For live information or "
+                + "on-device actions, emit calls like the following (do not wrap them in code fences; "
+                + "several per turn are fine):\n\n"
+                + "<function name=\"tool_name\"><param name=\"arg_name\">value</param></function>\n\n"
+                + "Available tools:\n" + list + "\n"
+                + "You will receive one <tool_response> with the real execution result; continue from it. "
+                + "When no tool is needed, answer directly without emitting any call.";
     }
 
     /** 把多行工具清单压成一行，省 token。 */
@@ -78,7 +122,7 @@ public final class PromptTemplate {
             if (t.isEmpty()) continue;
             int cut = t.indexOf("——");
             if (cut > 0) t = t.substring(0, cut).trim();
-            if (sb.length() > 0) sb.append("；");
+            if (sb.length() > 0) sb.append(Lang.zh() ? "；" : "; ");
             sb.append(t);
         }
         return sb.toString();
@@ -99,7 +143,9 @@ public final class PromptTemplate {
         if (tools != null && !tools.trim().isEmpty()) sb.append(tools.trim());
         List<String> mem = sanitizeMemory(memory);
         if (!mem.isEmpty()) {
-            sb.append("\n\n用户长期偏好（请始终遵守）：\n");
+            sb.append(Lang.zh()
+                    ? "\n\n用户长期偏好（请始终遵守）：\n"
+                    : "\n\nLong-term user preferences (always follow):\n");
             for (String m : mem) sb.append("- ").append(m).append('\n');
         }
         return sb.toString().trim();

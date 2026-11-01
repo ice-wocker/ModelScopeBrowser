@@ -1,5 +1,7 @@
 package com.mscope.browser.agent;
 
+import com.mscope.browser.i18n.Lang;
+
 import org.json.JSONObject;
 
 import java.io.File;
@@ -46,107 +48,140 @@ public class AgentTools {
         return "shell".equals(name) || "write_file".equals(name) || "delete_file".equals(name);
     }
 
-    /** 生成给模型看的工具说明（只列出当前启用的）。 */
+    /**
+     * 生成给模型看的工具说明（只列出当前启用的）。
+     *
+     * <p>说明的语言跟随界面语言：用英文界面的人，模型也该用英文思考和回报，
+     * 否则「英文界面 + 中文工具说明」会让小模型两头不靠。
+     */
     public static String describe(boolean web, boolean files, boolean shellOn) {
+        boolean zh = Lang.zh();
         StringBuilder sb = new StringBuilder();
         if (shellOn) {
-            sb.append("- shell：在手机本机终端执行命令（工作目录 = 工作区）。")
-              .append("参数 {\"command\": \"ls -la\"}\n");
+            sb.append(zh
+                    ? "- shell：在手机本机终端执行命令（工作目录 = 工作区）。参数 {\"command\": \"ls -la\"}\n"
+                    : "- shell: run a command in the on-device terminal (cwd = workspace). "
+                    + "args {\"command\": \"ls -la\"}\n");
         }
         if (web) {
-            sb.append("- web_search：联网搜索。参数 {\"query\": \"关键词\"}\n")
-              .append("- fetch_url：抓取网页正文。参数 {\"url\": \"https://...\"}\n");
+            sb.append(zh
+                    ? "- web_search：联网搜索。参数 {\"query\": \"关键词\"}\n"
+                    + "- fetch_url：抓取网页正文。参数 {\"url\": \"https://...\"}\n"
+                    : "- web_search: search the web. args {\"query\": \"keywords\"}\n"
+                    + "- fetch_url: fetch the text of a web page. args {\"url\": \"https://...\"}\n");
         }
         if (files) {
-            sb.append("- list_files：列出工作区目录。参数 {\"path\": \".\"}\n")
-              .append("- read_file：读取工作区文件。参数 {\"path\": \"a.txt\"}\n")
-              .append("- write_file：写入工作区文件。参数 {\"path\": \"a.txt\", \"content\": \"...\"}\n")
-              .append("- delete_file：删除工作区文件。参数 {\"path\": \"a.txt\"}\n")
-              .append("- open_preview：在预览页打开工作区 HTML。参数 {\"path\": \"page.html\"}\n");
+            sb.append(zh
+                    ? "- list_files：列出工作区目录。参数 {\"path\": \".\"}\n"
+                    + "- read_file：读取工作区文件。参数 {\"path\": \"a.txt\"}\n"
+                    + "- write_file：写入工作区文件。参数 {\"path\": \"a.txt\", \"content\": \"...\"}\n"
+                    + "- delete_file：删除工作区文件。参数 {\"path\": \"a.txt\"}\n"
+                    + "- open_preview：在预览页打开工作区 HTML。参数 {\"path\": \"page.html\"}\n"
+                    : "- list_files: list a workspace directory. args {\"path\": \".\"}\n"
+                    + "- read_file: read a workspace file. args {\"path\": \"a.txt\"}\n"
+                    + "- write_file: write a workspace file. args {\"path\": \"a.txt\", \"content\": \"...\"}\n"
+                    + "- delete_file: delete a workspace file. args {\"path\": \"a.txt\"}\n"
+                    + "- open_preview: open a workspace HTML file in the preview. args {\"path\": \"page.html\"}\n");
         }
         return sb.toString();
     }
 
     /** 执行一次工具调用，返回给模型看的结果文本。 */
     public String exec(ToolCall c) {
+        boolean zh = Lang.zh();
         try {
             switch (c.name) {
                 case "shell": {
                     String cmd = c.arg(new String[]{"command", "cmd", "script"}, "");
-                    if (cmd.isEmpty()) return "错误：缺少参数 command";
+                    if (cmd.isEmpty()) return zh ? "错误：缺少参数 command" : "error: missing argument command";
                     Shell.Out o = shell.run(cmd);
-                    String body = o.text.isEmpty() ? "（无输出）" : o.text;
-                    return "$ " + cmd + "\n" + body + (o.code != 0 ? "\n[退出码 " + o.code + "]" : "");
+                    String body = o.text.isEmpty() ? (zh ? "（无输出）" : "(no output)") : o.text;
+                    return "$ " + cmd + "\n" + body
+                            + (o.code != 0 ? (zh ? "\n[退出码 " + o.code + "]" : "\n[exit code " + o.code + "]") : "");
                 }
                 case "web_search": {
                     String q = c.arg(new String[]{"query", "q", "keywords", "keyword"}, "");
-                    if (q.isEmpty()) return "错误：缺少参数 query";
+                    if (q.isEmpty()) return zh ? "错误：缺少参数 query" : "error: missing argument query";
                     List<WebSearch.Result> rs = WebSearch.search(q, 6);
-                    if (rs.isEmpty()) return "没有检索到「" + q + "」的结果。";
-                    return "搜索「" + q + "」的结果：\n" + WebSearch.format(rs);
+                    if (rs.isEmpty()) {
+                        return zh ? "没有检索到「" + q + "」的结果。" : "No results found for \"" + q + "\".";
+                    }
+                    return (zh ? "搜索「" + q + "」的结果：\n" : "Results for \"" + q + "\":\n")
+                            + WebSearch.format(rs);
                 }
                 case "fetch_url": {
                     String url = c.arg(new String[]{"url", "link", "href"}, "");
                     if (!WebSearch.allowedForFetch(url)) {
-                        return "错误：只允许抓取公网 http/https 地址（本机与内网地址已拒绝）";
+                        return zh
+                                ? "错误：只允许抓取公网 http/https 地址（本机与内网地址已拒绝）"
+                                : "error: only public http/https URLs are allowed "
+                                + "(loopback and private-network addresses are rejected)";
                     }
                     return WebSearch.fetchPage(url, MAX_RESULT);
                 }
                 case "list_files": {
                     String path = c.arg(new String[]{"path", "dir", "directory"}, ".");
                     String rel = Workspace.normalize(path);
-                    if (!ws.exists(rel)) return "目录不存在：" + (path.isEmpty() ? "." : path);
-                    if (!ws.isDir(rel)) return "这不是目录：" + path;
+                    if (!ws.exists(rel)) {
+                        return (zh ? "目录不存在：" : "directory not found: ") + (path.isEmpty() ? "." : path);
+                    }
+                    if (!ws.isDir(rel)) return (zh ? "这不是目录：" : "not a directory: ") + path;
                     List<Workspace.Entry> es = ws.list(rel);
-                    if (es.isEmpty()) return "（空目录）";
+                    if (es.isEmpty()) return zh ? "（空目录）" : "(empty directory)";
                     StringBuilder sb = new StringBuilder();
                     for (Workspace.Entry e : es) {
-                        sb.append(e.dir ? "[目录] " : "[文件] ").append(e.relPath)
-                          .append(e.dir ? "/" : "  (" + e.size + " 字节)").append('\n');
+                        sb.append(e.dir ? (zh ? "[目录] " : "[dir] ") : (zh ? "[文件] " : "[file] "))
+                          .append(e.relPath)
+                          .append(e.dir ? "/" : (zh ? "  (" + e.size + " 字节)" : "  (" + e.size + " bytes)"))
+                          .append('\n');
                     }
                     return sb.toString().trim();
                 }
                 case "read_file": {
                     String path = c.arg(new String[]{"path", "file", "filename"}, "");
-                    if (path.isEmpty()) return "错误：缺少参数 path";
+                    if (path.isEmpty()) return zh ? "错误：缺少参数 path" : "error: missing argument path";
                     File f = ws.resolve(path);
-                    if (!f.exists()) return "文件不存在：" + path;
-                    if (f.isDirectory()) return "这是一个目录：" + path;
+                    if (!f.exists()) return (zh ? "文件不存在：" : "file not found: ") + path;
+                    if (f.isDirectory()) return (zh ? "这是一个目录：" : "this is a directory: ") + path;
                     return truncate(ws.readText(path), MAX_RESULT);
                 }
                 case "write_file": {
                     String path = c.arg(new String[]{"path", "file", "filename"}, "");
-                    if (path.isEmpty()) return "错误：缺少参数 path";
+                    if (path.isEmpty()) return zh ? "错误：缺少参数 path" : "error: missing argument path";
                     String content = c.arg(new String[]{"content", "text", "body", "data"}, "");
                     ws.writeText(path, content);
-                    return "已写入 /" + Workspace.normalize(path)
-                            + "（" + content.getBytes().length + " 字节）";
+                    int bytes = content.getBytes().length;
+                    return zh
+                            ? "已写入 /" + Workspace.normalize(path) + "（" + bytes + " 字节）"
+                            : "wrote /" + Workspace.normalize(path) + " (" + bytes + " bytes)";
                 }
                 case "delete_file": {
                     String path = c.arg(new String[]{"path", "file", "filename"}, "");
-                    if (path.isEmpty()) return "错误：缺少参数 path";
-                    return ws.delete(path) ? "已删除 /" + Workspace.normalize(path) : "不存在：" + path;
+                    if (path.isEmpty()) return zh ? "错误：缺少参数 path" : "error: missing argument path";
+                    return ws.delete(path)
+                            ? (zh ? "已删除 /" : "deleted /") + Workspace.normalize(path)
+                            : (zh ? "不存在：" : "not found: ") + path;
                 }
                 case "open_preview": {
                     String path = c.arg(new String[]{"path", "file", "filename", "url"}, "");
-                    if (path.isEmpty()) return "错误：缺少参数 path";
+                    if (path.isEmpty()) return zh ? "错误：缺少参数 path" : "error: missing argument path";
                     String rel = Workspace.normalize(path);
-                    if (!ws.exists(rel)) return "文件不存在：" + path;
+                    if (!ws.exists(rel)) return (zh ? "文件不存在：" : "file not found: ") + path;
                     if (host != null) host.openPreview(rel);
-                    return "已在预览页打开 /" + rel;
+                    return zh ? "已在预览页打开 /" + rel : "opened /" + rel + " in the preview";
                 }
                 default:
-                    return "未知工具：" + c.name;
+                    return (zh ? "未知工具：" : "unknown tool: ") + c.name;
             }
         } catch (Exception e) {
-            return "执行出错：" + e.getMessage();
+            return (zh ? "执行出错：" : "execution failed: ") + e.getMessage();
         }
     }
 
     private static String truncate(String s, int max) {
         if (s == null) return "";
         if (s.length() <= max) return s;
-        return s.substring(0, max) + "\n…（内容过长，已截断）";
+        return s.substring(0, max) + (Lang.zh() ? "\n…（内容过长，已截断）" : "\n… (truncated: too long)");
     }
 
     /** 供界面展示的参数摘要（用于确认弹窗）。 */
@@ -158,10 +193,11 @@ public class AgentTools {
             if ("write_file".equals(c.name)) {
                 String path = c.arg(new String[]{"path", "file", "filename"}, "");
                 String content = c.arg(new String[]{"content", "text", "body", "data"}, "");
-                return "写入 " + path + "\n\n" + truncate(content, 800);
+                return (Lang.zh() ? "写入 " : "write ") + path + "\n\n" + truncate(content, 800);
             }
             if ("delete_file".equals(c.name)) {
-                return "删除 " + c.arg(new String[]{"path", "file", "filename"}, "");
+                return (Lang.zh() ? "删除 " : "delete ")
+                        + c.arg(new String[]{"path", "file", "filename"}, "");
             }
             return c.name + " " + a.toString();
         } catch (Exception e) {

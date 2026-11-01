@@ -1,5 +1,7 @@
 # 深问答（FAQ）
 
+> 🌐 语言 / Language: 中文 · [English](FAQ.en.md)
+
 这里收集的是「用起来才会问」的问题。基础问题见 [完整手册第 11 节](README.md#11-常见问答)，
 报错见 [故障排查](TROUBLESHOOTING.md)。
 
@@ -225,7 +227,7 @@ AgentTools.describe(...)  // 追加一行
 **Q25. 单测怎么跑得这么快？**
 
 因为 `core/` 不依赖 Android。`./gradlew testDebugUnitTest` 只编译纯 Java 部分，
-87 个用例一秒内跑完（不含 Gradle 启动时间）。
+99 个用例一秒内跑完（不含 Gradle 启动时间）。
 
 这也是「把规则下沉到 core」的额外好处：测试反馈快，人才愿意写测试。
 

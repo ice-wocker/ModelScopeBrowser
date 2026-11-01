@@ -1,5 +1,7 @@
 # 故障排查手册
 
+> 🌐 语言 / Language: 中文 · [English](TROUBLESHOOTING.en.md)
+
 按「你看到的症状」索引。每条都给出：怎么确认、为什么、怎么修。
 
 ![排错决策卡](assets/card-triage.png)

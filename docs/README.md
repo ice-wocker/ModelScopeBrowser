@@ -1,11 +1,12 @@
 # 魔搭模型库 · 完整手册
 
+> 🌐 语言 / Language: 中文 · [English](README.en.md)
+
 > **文档导航**
 > [完整手册](README.md) · [模块深入](MODULES.md) · [架构与数据流](ARCHITECTURE.md) ·
 > [开发指南](DEVELOPING.md) · [故障排查](TROUBLESHOOTING.md) · [深问答](FAQ.md) ·
 > [性能数据](BENCHMARKS.md) · [图解与流程](DIAGRAMS.md) · [更新日志](CHANGELOG.md) ·
 > [海报（内嵌图）](POSTER.md)
-
 
 > 这是 `README.md` 的展开版。首页那个 README 是门面：三十秒读完，知道这是个什么东西；
 > 这一份是手册：想改代码、想搞懂某个行为为什么这样、想自己出一版包，都从这里翻。
@@ -53,12 +54,12 @@
 
 | 项 | 值 |
 |---|---|
-| 当前版本 | **v2.5.0**（versionCode 13） |
+| 当前版本 | **v2.6.0**（versionCode 14） |
 | 支持系统 | Android 7.0 (API 24) ~ Android 16 (API 36) |
 | ABI | arm64-v8a（多档指令集）、armeabi-v7a（单档静态） |
 | 推理后端 | llama.cpp `b11205`，纯 CPU |
 | APK 体积 | 约 8.2 MB（多份 CPU 后端以压缩形式存放） |
-| 单元测试 | 87 个用例（`./gradlew testDebugUnitTest`） |
+| 单元测试 | 99 个用例（`./gradlew testDebugUnitTest`） |
 | 许可证 | MIT |
 
 ## 2 界面与交互
@@ -513,7 +514,7 @@ v2.4.2 是「把看起来能用、偶尔不对的地方钉死」；v2.5.0 是「
 | `PerfStats` | 滚动统计均值 / P90，明显劣化时给一句可操作的建议 |
 | `MarkdownOutline` | 长回复的标题大纲 |
 
-这些全部不 import `android.*`，因此能在 JVM 上直接单测——新增 47 个用例，总数 87。
+这些全部不 import `android.*`，因此能在 JVM 上直接单测——新增 47 个用例，总数 87；v2.6.0 补 12 个本地化用例，共 99。
 
 ![参数](assets/params.png)
 
@@ -541,6 +542,21 @@ v2.4.2 是「把看起来能用、偶尔不对的地方钉死」；v2.5.0 是「
 ### 10.4 版本号
 
 `versionCode 12 → 13`，`versionName 2.4.1 → 2.5.0`。minor 位跳了，因为新增了模块层。
+
+## 10.5 v2.6.0 补了什么
+
+v2.6.0 不新增功能，只做语言：
+
+- **应用本身中英双语**，「关于 → 语言」可切；切换走 `recreate()` 而不是重启进程，已加载的模型与
+  正在进行的下载都不会丢。
+- **`values/` 改为英文**，中文迁到 `values-zh/`；Lint 的 `MissingTranslation` 开回来，
+  双语从「自觉」变成构建期约束。
+- **拿不到 `Context` 的文案**（提示词、工具说明、工具结果、错误）统一走 `i18n/Lang`，
+  与资源换语言是同一次动作 —— 不会出现「英文界面 + 中文提示词」的半截状态。
+- **10 份长文档全部双语**，每页顶部可互切。
+- `versionCode 13 → 14`，`versionName 2.5.0 → 2.6.0`。
+
+一句实话：21 张配图里的文字仍是中文，重画是绘图工作量而不是翻译工作量，单独列着。
 
 ## 11 常见问答
 
@@ -606,12 +622,12 @@ Vulkan / OpenCL 后端需要 `glslc` 等工具链，构建环境不具备。纯 
 ### 12.3 常用命令
 
 ```bash
-./gradlew testDebugUnitTest        # 单测（87 个）
+./gradlew testDebugUnitTest        # 单测（99 个）
 ./gradlew lintDebug                # Lint（abortOnError）
 ./gradlew assembleDebug            # debug 包
 ./gradlew assembleRelease          # release 包（R8 + 资源压缩）
 ./gradlew :app:dependencies        # 依赖树
-git tag v2.5.0 && git push --tags  # 触发 Release 流水线
+git tag v2.6.0 && git push --tags  # 触发 Release 流水线
 ```
 
 ### 12.4 排错顺序

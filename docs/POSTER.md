@@ -1,15 +1,15 @@
 <!--
-  这一页把关键配图以 base64 内嵌，好处是「单文件可离线查看」：
-  把 POSTER.md 单独发给别人，图片也还在。代价是文件很大、diff 无意义，
-  所以图片同时以 PNG 形式存在于 assets/ 与仓库根目录，供正常 Markdown 引用。
+  This page embeds the key illustrations as base64, which buys "one file, readable offline":
+  send POSTER.md to somebody and the images travel with it. The cost is a huge file and a
+  meaningless diff, so the same images also exist as PNGs under assets/ for normal Markdown use.
 -->
 
-# 一图看懂 ModelScopeBrowser
+# ModelScopeBrowser in one page
 
-> 本页所有图片以内嵌方式存放（单文件可离线阅读）。
-> 日常引用请用 [`assets/`](assets/) 下的 PNG，不要用本页。
+> Every image on this page is embedded (a single file, readable offline).
+> For everyday linking use the PNGs under [`assets/`](assets/), not this page.
 
-## 海报
+## Poster
 
 ![poster](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAADIAAAAfQCAIAAACPb1IiAAEAAElEQVR4XuzdBbhTV7bA8cHdoS3u
 bgWKF/eipXipu7u7UHd3F6y4uzvF3b3F3eUtmpm8NDfZZx/NSfLnu99888rW39rn3LzJ6tqpChQu
@@ -5410,7 +5410,7 @@ IAEJSEACEpCABCQgAQlIQAISqDgCCrAq7pA6IAlIQAISkIAEJCABCUhAAhKQgAQkIAEJSEACEpCA
 BCQgAQlIQAISkIAEJCABCUigXAQUYJWLtO1IQAISkIAEJCABCUhAAhKQgAQkIAEJSEACEpCABCQg
 AQlIQAISkIAEJCABCUhAAhVH4P8HMIcykhJNOoQAAAAASUVORK5CYII=)
 
-## 架构
+## Architecture
 
 ![arch](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAB6gAAATYCAIAAAAtfw6yAAEAAElEQVR42uz995cdR37mCUekvd7f
 W95blIH3lgQIgiDZ3VIbaaSZHWlmdnT27NlX/8prds6ONNKO3Z2VWu1omgaE9x4FlPfe1/UmfcT7
@@ -11745,7 +11745,7 @@ AAAAADOFxDcAAAAAAAAAYKaQ+AYAAAAAAAAAzBQS3wAAAAAAAACAmULiGwAAAAAAAAAwU0h8AwAA
 AAAAAABmColvAAAAAAAAAMBMIfENAAAAAAAAAJgpJL4BAAAAAAAAADPl/wKQu2lbEOJ6XwAAAABJ
 RU5ErkJggg==)
 
-## 智能体闭环
+## The agent loop
 
 ![loop](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAB6gAAANcCAIAAABt+WbyAAEAAElEQVR42uz9Z3ccSZ7miZrL0Dqg
 tSYkFag1mUySKUp313R3dc/M3jNzd+99c8/ZLzDfYUdtd3XvmZ6e6erSVampNUGCBEkQgoTWCARC
@@ -17265,7 +17265,7 @@ AAAAAAAAAAAAAOwpCL4BAAAAAAAAAAAAYE9B8A0AAAAAAAAAAAAAewqCbwAAAAAAAAAAAADYUxB8
 AwAAAAAAAAAAAMCeguAbAAAAAAAAAAAAAPYUBN8AAAAAAAAAAAAAsKcg+AYAAAAAAAAAAACAPQXB
 NwAAAAAAAAAAAADsKf8/wPchCKfSnsUAAAAASUVORK5CYII=)
 
-## 模型列表（高分辨率）
+## Model list (high resolution)
 
 ![ui](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABpAAAAvgCAIAAACJtOaXAAEAAElEQVR42uz9d7cb6Zmme17hAx7Y
 ljaNpKo2q8/MfJ750GfmnOnqrlJJ6ZN2e7jwMX+8TwQAOiVTqRLUff8WlzqbRW7CBhB3PMZr/9//
@@ -28842,7 +28842,7 @@ ACuEwA4AAAAAAABYIQR2AAAAAAAAwAohsAMAAAAAAABWCIEdAAAAAAAAsEII7AAAAAAAAIAVQmAH
 AAAAAAAArBACOwAAAAAAAGCFENgBAAAAAAAAK4TADgAAAAAAAFghBHYAAAAAAADACiGwAwAAAAAA
 AFYIgR0AAAAAAACwQgjsAAAAAAAAgBXy/wG1HWfKFs63xwAAAABJRU5ErkJggg==)
 
-## 指令集档位实测
+## Measured instruction-set tiers
 
 ![tps](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABzAAAAOsCAIAAACqF7f2AAB88ElEQVR42uzdZ5QUZaKA4eqeAEMG
 QVGRDJIVRBTJElTMOWBAkCjGXdewprvmhAF1VYwgiuIqggoiApJEQVEEBCVIlJxnmNTT90e74zgg
@@ -29408,28 +29408,28 @@ ERFkAQAAAAAiIsgCAAAAAEREkAUAAAAAiIggCwAAAAAQEUEWAAAAACAigiwAAAAAQEQEWQAAAACA
 iAiyAAAAAAAREWQBAAAAACIiyAIAAAAARESQBQAAAACIiCALAAAAABCR/wu+IvUWaLVq6gAAAABJ
 RU5ErkJggg==)
 
-## 一句话总结
+## One sentence
 
 ```text
-逛 → 拿 → 用
-逛：分页 / 搜索 / 排序 / 六维筛选，25.9 万个模型
-拿：断点续传 / 空间体检 / 魔数校验 / 原子落盘
-用：llama.cpp 离线推理 + 工具闭环（shell / 联网 / 文件 / 预览）
+Browse → Fetch → Use
+Browse: paging / search / sorting / six facets over 259,000 models
+Fetch: resume / space check / magic verification / atomic writes
+Use: llama.cpp offline inference + the tool loop (shell / web / files / preview)
 ```
 
-## 关键数字
+## Key numbers
 
-| 指标 | 值 |
+| Metric | Value |
 |---|---|
-| 模型总量 | 约 259,431（接口返回的 TotalCount） |
-| APK 体积 | 约 8.2 MB |
-| 最低系统 | Android 7.0（API 24） |
-| 单元测试 | 87 个 |
-| 多档后端 | 7 份（armv8.0 ~ armv9.2） |
-| 工具数 | 8 个 |
-| 单轮工具步数上限 | 8 |
-| 默认上下文 | 8192（按设备内存自适应） |
+| Models | about 259,431 (the TotalCount the API returns) |
+| APK size | ~8.2 MB |
+| Minimum OS | Android 7.0 (API 24) |
+| Unit tests | 99 |
+| Tiered backends | 7 (armv8.0 – armv9.2) |
+| Tools | 8 |
+| Tool steps per turn | 8 max |
+| Default context | 8192 (adaptive to device memory) |
 
 ---
 
-_想读正文？回 [README](../README.md) 或 [完整手册](README.md)。_
+_Want the prose? Back to the [README](../README.en.md) or the [handbook](README.en.md)._

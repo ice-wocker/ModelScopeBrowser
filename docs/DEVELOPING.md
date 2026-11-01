@@ -1,5 +1,7 @@
 # 开发指南
 
+> 🌐 语言 / Language: 中文 · [English](DEVELOPING.en.md)
+
 从零把这仓库跑起来、改一处代码、加一个功能、出一版包。
 假设你会 Java 与 Gradle，但不了解这个项目。
 
@@ -250,8 +252,8 @@ EOF
 grep versionCode app/build.gradle
 
 # 2. 打 tag（必须 v 开头，CI 只认这个）
-git tag v2.5.0
-git push origin v2.5.0
+git tag v2.6.0
+git push origin v2.6.0
 ```
 
 CI 会：单测 → Lint → 构建 debug+release → 校验签名与 ABI → 创建 Release 并附 APK。
