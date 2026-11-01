@@ -87,8 +87,8 @@ public class AgentTools {
                 }
                 case "fetch_url": {
                     String url = c.arg(new String[]{"url", "link", "href"}, "");
-                    if (!url.startsWith("http://") && !url.startsWith("https://")) {
-                        return "错误：url 必须是 http/https 开头的完整地址";
+                    if (!WebSearch.allowedForFetch(url)) {
+                        return "错误：只允许抓取公网 http/https 地址（本机与内网地址已拒绝）";
                     }
                     return WebSearch.fetchPage(url, MAX_RESULT);
                 }

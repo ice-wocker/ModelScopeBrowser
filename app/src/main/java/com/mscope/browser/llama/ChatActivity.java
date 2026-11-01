@@ -39,6 +39,11 @@ import com.mscope.browser.agent.ToolCall;
 import com.mscope.browser.agent.WebSearch;
 import com.mscope.browser.agent.Workspace;
 import com.mscope.browser.agent.WorkspaceActivity;
+import com.mscope.browser.core.MarkdownOutline;
+import com.mscope.browser.core.MemoryBudget;
+import com.mscope.browser.core.PerfStats;
+import com.mscope.browser.core.PromptTemplate;
+import com.mscope.browser.core.Validators;
 import com.mscope.browser.local.LocalModel;
 
 import java.util.ArrayList;
@@ -92,6 +97,11 @@ public class ChatActivity extends AppCompatActivity {
     /** 默认上下文窗口。输出上限必须挤在上下文里（上下文 = 提示词/历史 + 本次输出），
      *  所以想放开输出，上下文也要一起放大；KV 已量化为 q8_0，8192 的占用约为原先一半。 */
     private static final int DEFAULT_CTX = 8192;
+
+    /** 最近若干轮的推理性能，用于状态条展示均值/P90 与劣化提示。 */
+    private final PerfStats perf = new PerfStats(12);
+    /** 启动时按设备内存算出的「安全上下文」，用于参数弹窗里的说明。 */
+    private int autoCtx = DEFAULT_CTX;
 
     /** 自动保存时识别 ```lang filename 之类的标注。 */
     private static final Pattern FENCE = Pattern.compile("```([^\\n`]*)\\n([\\s\\S]*?)```");
@@ -184,6 +194,13 @@ public class ChatActivity extends AppCompatActivity {
                 }));
         prefs = getSharedPreferences(PREF, MODE_PRIVATE);
         nCtx = prefs.getInt(KEY_CTX, DEFAULT_CTX);
+        // 设备内存先算一遍：这是「默认值是否放得下」的唯一依据。
+        // 读不到 meminfo 时 suggestCtx 会原样返回 fallback，行为与以前一致。
+        MemoryBudget.Snapshot mem = MemoryBudget.read();
+        autoCtx = MemoryBudget.suggestCtx(mem, getIntent().getLongExtra(EXTRA_SIZE, 0), true, DEFAULT_CTX);
+        if (!prefs.contains(KEY_CTX)) {
+            nCtx = autoCtx;
+        }
         systemPrompt = prefs.getString(KEY_SYS, DEFAULT_SYS);
         agentMode = prefs.getBoolean(KEY_AGENT, true);
         toolWeb = prefs.getBoolean(KEY_TOOL_WEB, true);
@@ -372,7 +389,14 @@ public class ChatActivity extends AppCompatActivity {
         } else if (generating && agentStep >= 2) {
             tvCtx.setText(getString(R.string.agent_step, agentStep));
         } else {
-            tvCtx.setText(getString(R.string.chat_ctx_usage, engine.cachedTokens(), engine.contextSize()));
+            String usage = getString(R.string.chat_ctx_usage, engine.cachedTokens(), engine.contextSize());
+            // 有足够样本时把均值 / P90 一并显示：单次 tok/s 抖动太大，只看最后一个数会误判设备
+            String perfText = perf.size() >= 2 ? perf.summary() : "";
+            tvCtx.setText(perfText.isEmpty() ? usage : usage + " · " + perfText);
+            String advice = perf.advice();
+            if (!advice.isEmpty()) {
+                tvCtx.setText(tvCtx.getText() + "\n" + advice);
+            }
         }
     }
 
@@ -610,11 +634,14 @@ public class ChatActivity extends AppCompatActivity {
         if (TextUtils.isEmpty(base) || DEFAULT_SYS.equals(base)) {
             base = agentMode ? DEFAULT_SYS_AGENT : DEFAULT_SYS;
         }
-        sb.append(base);
-        if (agentMode) {
-            sb.append("\n\n")
-              .append(getString(R.string.agent_sys_hint, AgentTools.describe(toolWeb, true, true)));
-        }
+        PromptTemplate.Preset preset = agentMode ? PromptTemplate.Preset.AGENT : PromptTemplate.Preset.GENERAL;
+        // 小模型（≤2.5B）容易被长提示词带跑偏，工具说明换成压缩版；工具清单照旧来自 AgentTools，
+        // 免得「提示词说的工具」和「真的能执行的工具」两套东西对不上。
+        boolean compact = PromptTemplate.wantsCompactTools(model == null ? "" : model.displayName);
+        String tools = agentMode
+                ? PromptTemplate.toolSection(AgentTools.describe(toolWeb, true, true), compact)
+                : null;
+        sb.append(PromptTemplate.compose(base, preset, tools, null));
         if (!TextUtils.isEmpty(pendingWebContext)) {
             sb.append("\n\n").append(getString(R.string.chat_web_context))
               .append('\n').append(pendingWebContext);
@@ -699,6 +726,8 @@ public class ChatActivity extends AppCompatActivity {
                             prefillMs / 1000.0, tokensPerSec, tokens));
                     adapter.notifyItemChanged(aiIndex);
                 }
+                perf.add(new PerfStats.Sample(tokens, prefillMs, tokensPerSec,
+                        System.currentTimeMillis()));
                 latch.countDown();
             }
 
@@ -1244,26 +1273,94 @@ public class ChatActivity extends AppCompatActivity {
 
     /** 输入框左侧「+」：把高频操作收进一个菜单。 */
     private void showToolsMenu() {
-        final String[] actions = {
-                getString(R.string.chat_new),
-                getString(R.string.chat_history),
-                getString(R.string.workspace_title),
-                getString(R.string.term_title),
-                getString(R.string.chat_params),
-                getString(R.string.chat_system),
-                getString(R.string.chat_export)};
+        // 「本篇大纲」只在最后一条回复够长、且确实有小标题时出现，避免菜单里堆一堆点了没反应的项。
+        final List<MarkdownOutline.Heading> outline = currentOutline();
+        final boolean hasOutline = !outline.isEmpty();
+        final java.util.ArrayList<String> actions = new java.util.ArrayList<>();
+        actions.add(getString(R.string.chat_new));
+        actions.add(getString(R.string.chat_history));
+        actions.add(getString(R.string.workspace_title));
+        actions.add(getString(R.string.term_title));
+        actions.add(getString(R.string.chat_params));
+        actions.add(getString(R.string.chat_system));
+        if (hasOutline) actions.add(getString(R.string.chat_outline));
+        actions.add(getString(R.string.chat_stats));
+        actions.add(getString(R.string.chat_export));
         new MaterialAlertDialogBuilder(this)
-                .setItems(actions, (d, which) -> {
-                    switch (which) {
-                        case 0: newChat(); break;
-                        case 1: showHistory(); break;
-                        case 2: openWorkspace(); break;
-                        case 3: openTerminal(); break;
-                        case 4: showParamsDialog(); break;
-                        case 5: showSystemDialog(); break;
-                        default: exportChat(); break;
+                .setItems(actions.toArray(new String[0]), (d, which) -> {
+                    String picked = actions.get(which);
+                    if (picked.equals(getString(R.string.chat_new))) {
+                        newChat();
+                    } else if (picked.equals(getString(R.string.chat_history))) {
+                        showHistory();
+                    } else if (picked.equals(getString(R.string.workspace_title))) {
+                        openWorkspace();
+                    } else if (picked.equals(getString(R.string.term_title))) {
+                        openTerminal();
+                    } else if (picked.equals(getString(R.string.chat_params))) {
+                        showParamsDialog();
+                    } else if (picked.equals(getString(R.string.chat_system))) {
+                        showSystemDialog();
+                    } else if (picked.equals(getString(R.string.chat_outline))) {
+                        showOutline(outline);
+                    } else if (picked.equals(getString(R.string.chat_stats))) {
+                        showPerfStats();
+                    } else {
+                        exportChat();
                     }
                 })
+                .show();
+    }
+
+    /** 最后一条助手回复的标题大纲；不够长或没有小标题时返回空表。 */
+    private List<MarkdownOutline.Heading> currentOutline() {
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            ChatMessage m = messages.get(i);
+            if (m.isAssistant()) {
+                String text = m.content == null ? "" : m.content;
+                return MarkdownOutline.worthOutline(text)
+                        ? MarkdownOutline.extract(text)
+                        : java.util.Collections.emptyList();
+            }
+        }
+        return java.util.Collections.emptyList();
+    }
+
+    private void showOutline(List<MarkdownOutline.Heading> outline) {
+        final String[] items = new String[outline.size()];
+        for (int i = 0; i < outline.size(); i++) items[i] = outline.get(i).toString();
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.chat_outline)
+                .setItems(items, (d, which) -> {
+                    // 没有精确的行定位能力时，至少把整段回复滚到顶，长文翻找已经省一大半
+                    if (!messages.isEmpty()) chatList.scrollToPosition(messages.size() - 1);
+                })
+                .setPositiveButton(android.R.string.ok, null)
+                .show();
+    }
+
+    private void showPerfStats() {
+        if (perf.size() == 0) {
+            Toast.makeText(this, R.string.chat_stats_empty, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("最近 ").append(perf.size()).append(" 轮\n");
+        sb.append(perf.summary()).append("\n\n");
+        List<PerfStats.Sample> list = perf.snapshot();
+        for (int i = 0; i < list.size(); i++) {
+            PerfStats.Sample sm = list.get(i);
+            sb.append(String.format(Locale.ROOT, "#%d  %d tokens · %.1f tok/s · 首字 %d ms%n",
+                    i + 1, sm.tokens, sm.tokensPerSec, sm.prefillMs));
+        }
+        String advice = perf.advice();
+        if (!advice.isEmpty()) sb.append('\n').append(advice);
+        sb.append('\n').append(getString(R.string.chat_stats_hint,
+                engine.contextSize(), engine.backendInfo().isEmpty() ? "-" : engine.backendInfo()));
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.chat_stats)
+                .setMessage(sb.toString().trim())
+                .setPositiveButton(android.R.string.ok, null)
                 .show();
     }
 
@@ -1350,6 +1447,13 @@ public class ChatActivity extends AppCompatActivity {
         etTopP.setText(String.valueOf(params.topP));
         etTopK.setText(String.valueOf(params.topK));
         etCtx.setText(String.valueOf(nCtx));
+        TextView ctxTip = v.findViewById(R.id.tvCtxTip);
+        if (ctxTip != null) {
+            MemoryBudget.Snapshot mem = MemoryBudget.read();
+            long size = model == null ? 0 : model.size;
+            String device = MemoryBudget.explain(mem, size, autoCtx);
+            ctxTip.setText(getString(R.string.p_ctx_tip) + "\n\n本机建议：" + device);
+        }
 
         new MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.chat_params)
@@ -1369,19 +1473,29 @@ public class ChatActivity extends AppCompatActivity {
                     Toast.makeText(this, R.string.p_reset, Toast.LENGTH_SHORT).show();
                 })
                 .setPositiveButton(R.string.p_apply, (d, w) -> {
-                    params.maxTokens = clampInt(etMax.getText().toString(), params.maxTokens, 1, 8192);
-                    params.temp = clampFloat(etTemp.getText().toString(), params.temp, 0f, 2f);
-                    params.topP = clampFloat(etTopP.getText().toString(), params.topP, 0f, 1f);
-                    params.topK = clampInt(etTopK.getText().toString(), params.topK, 0, 200);
-                    int ctx = clampInt(etCtx.getText().toString(), nCtx, 512, 32768);
-                    if (ctx != nCtx) {
-                        nCtx = ctx;
+                    // 统一走 Validators：宽松解析（全角数字、逗号小数点）+ 范围收敛 +
+                    // 输出上限压到上下文的 3/4，避免「填了个 32768 结果永远触不到 EOS」。
+                    params.maxTokens = Validators.parseInt(etMax.getText().toString(), params.maxTokens);
+                    params.temp = Validators.parseFloat(etTemp.getText().toString(), params.temp);
+                    params.topP = Validators.parseFloat(etTopP.getText().toString(), params.topP);
+                    params.topK = Validators.parseInt(etTopK.getText().toString(), params.topK);
+                    int ctx = Validators.parseInt(etCtx.getText().toString(), nCtx);
+                    Validators.Sampling s = new Validators.Sampling(
+                            params.maxTokens, params.temp, params.topP, params.topK, ctx);
+                    String note = Validators.normalize(s);
+                    params.maxTokens = s.maxTokens;
+                    params.temp = s.temp;
+                    params.topP = s.topP;
+                    params.topK = s.topK;
+                    if (s.nCtx != nCtx) {
+                        nCtx = s.nCtx;
                         prefs.edit().putInt(KEY_CTX, nCtx).apply();
                         if (generating) engine.cancel();
                         doLoad();     // 上下文变化需要重建 llama context
                     }
-                    // 输出必须给提示词/历史留出空间：最多占上下文的 3/4
-                    params.maxTokens = Math.min(params.maxTokens, Math.max(256, nCtx * 3 / 4));
+                    if (!note.isEmpty()) {
+                        Toast.makeText(this, note, Toast.LENGTH_LONG).show();
+                    }
                 })
                 .show();
     }
@@ -1401,23 +1515,6 @@ public class ChatActivity extends AppCompatActivity {
                 .show();
     }
 
-    private static int clampInt(String s, int def, int min, int max) {
-        try {
-            int v = Integer.parseInt(s.trim());
-            return Math.max(min, Math.min(max, v));
-        } catch (Exception e) {
-            return def;
-        }
-    }
-
-    private static float clampFloat(String s, float def, float min, float max) {
-        try {
-            float v = Float.parseFloat(s.trim());
-            return Math.max(min, Math.min(max, v));
-        } catch (Exception e) {
-            return def;
-        }
-    }
 
     @Override
     protected void onPause() {

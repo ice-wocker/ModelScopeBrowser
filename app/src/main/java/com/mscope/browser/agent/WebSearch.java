@@ -1,5 +1,7 @@
 package com.mscope.browser.agent;
 
+import com.mscope.browser.core.Validators;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
@@ -85,10 +87,30 @@ public class WebSearch {
 
     /** 抓取一个网页并抽成纯文本，供 fetch_url 工具使用；过长会截断。 */
     public static String fetchPage(String url, int maxChars) throws IOException {
-        String text = text(fetch(url));
+        // 抓回来的正文会原样回灌进模型上下文，所以按「完整字符」截断，
+        // 不能把 emoji / 生僻字切成半个 surrogate。
+        String safe = Validators.safeUrl(url);
+        if (safe == null) return "错误：url 必须是 http/https 开头的完整地址";
+        String text = text(fetch(safe));
         if (text.isEmpty()) return "（页面没有可读文本，可能是纯脚本或需要登录的页面）";
-        if (text.length() > maxChars) text = text.substring(0, maxChars) + "\n…（内容过长，已截断）";
+        if (text.length() > maxChars) {
+            text = com.mscope.browser.core.TextKit.trimUtf8(text, maxChars * 3) + "\n…（内容过长，已截断）";
+        }
         return text;
+    }
+
+    /**
+     * 网页抓取前的礼貌判定：不抓本机/内网地址。
+     *
+     * <p>抓取目标是模型给的，本地模型完全可能写出 {@code http://localhost:8080/...}
+     * 去探测用户手机上的服务；这条链路不该被放开。
+     */
+    public static boolean allowedForFetch(String url) {
+        String safe = Validators.safeUrl(url);
+        if (safe == null) return false;
+        String host = Validators.hostOf(safe);
+        if (host.isEmpty()) return false;
+        return !Validators.isPrivateHost(host);
     }
 
     /* ------------------------------------------------------------------ 实现 */

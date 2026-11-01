@@ -7,6 +7,8 @@ import android.os.Looper;
 import android.util.Log;
 
 import com.mscope.browser.R;
+import com.mscope.browser.core.FsKit;
+import com.mscope.browser.core.StorageGuard;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -206,11 +208,12 @@ public class DownloadCenter {
             @SuppressWarnings({"deprecation", "UsableSpace"})
             final long usable = dst.getParentFile() == null ? -1 : dst.getParentFile().getUsableSpace();
             if (knownTotal > 0 && usable > 0) {
-                long need = knownTotal - Math.max(0, t.done) + 8L * 1024 * 1024;
-                if (usable < need) {
-                    throw new IllegalStateException("存储空间不足，还需要 "
-                            + android.text.format.Formatter.formatFileSize(ctx, need));
-                }
+                // 统一交给 StorageGuard：它同时考虑系统安全水位与「续传后仍需的字节数」，
+                // 并把结论写成一句人话（差多少 / 下载后还剩多少）。
+                long need = knownTotal - Math.max(0, t.done);
+                StorageGuard.Check check = StorageGuard.check(usable, need, Math.max(0, t.done));
+                if (!check.canStart()) throw new IllegalStateException(check.message);
+                if (check.shouldWarn()) Log.w(TAG, check.message);
             }
 
             byte[] buf = new byte[256 * 1024];
@@ -333,14 +336,9 @@ public class DownloadCenter {
     }
 
     /** GGUF 文件头固定为 "GGUF"，用它挡掉错误页/HTML 等无效内容。 */
+    /** 校验真的是 GGUF：读文件头而不是只看后缀（魔搭鉴权失败会返回 HTML 错误页）。 */
     private static boolean isGguf(File f) {
-        try (InputStream in = new FileInputStream(f)) {
-            byte[] m = new byte[4];
-            if (in.read(m) != 4) return false;
-            return m[0] == 'G' && m[1] == 'G' && m[2] == 'U' && m[3] == 'F';
-        } catch (Exception e) {
-            return false;
-        }
+        return FsKit.sniff(f).matches;
     }
 
     /* --------------------------------------------------------- 待续传任务落盘 */

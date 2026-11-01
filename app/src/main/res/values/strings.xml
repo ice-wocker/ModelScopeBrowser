@@ -200,4 +200,10 @@
     <string name="preview_open_browser">浏览器打开</string>
     <string name="preview_reload">刷新</string>
     <string name="preview_desktop">桌面版</string>
+
+    <!-- 长回复大纲 / 性能统计 -->
+    <string name="chat_outline">本篇大纲</string>
+    <string name="chat_stats">推理性能</string>
+    <string name="chat_stats_empty">还没有可统计的生成记录</string>
+    <string name="chat_stats_hint">上下文 %1$d tokens · 后端 %2$s</string>
 </resources>

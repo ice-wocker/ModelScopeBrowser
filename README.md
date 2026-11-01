@@ -4,26 +4,33 @@
 
 **浏览魔搭全部大模型 · 把 GGUF 下载到手机 · 内置 llama.cpp 离线对话 · 模型可自主调用终端与联网**
 
-*Browse all ModelScope LLMs, download GGUF to your phone, and chat offline with built-in llama.cpp — the model can run shell commands, search the web and work with files.*
+*Browse all ModelScope LLMs, download GGUF to your phone, and chat offline with built-in llama.cpp — 
+the model can run shell commands, search the web and work with files.*
 
 [![Release](https://img.shields.io/github/v/release/ice-wocker/ModelScopeBrowser?color=FF5A2D&label=Release)](https://github.com/ice-wocker/ModelScopeBrowser/releases)
 [![CI](https://github.com/ice-wocker/ModelScopeBrowser/actions/workflows/android.yml/badge.svg)](https://github.com/ice-wocker/ModelScopeBrowser/actions/workflows/android.yml)
 [![Stars](https://img.shields.io/github/stars/ice-wocker/ModelScopeBrowser?color=FF5A2D)](https://github.com/ice-wocker/ModelScopeBrowser/stargazers)
+[![License](https://img.shields.io/badge/License-MIT-3DA639)](LICENSE)
 [![Android](https://img.shields.io/badge/Android-7.0%2B%20(API%2024)-3DDC84?logo=android&logoColor=white)](#)
 [![llama.cpp](https://img.shields.io/badge/llama.cpp-b11205-000000)](#)
 [![推理](https://img.shields.io/badge/%E6%8E%A8%E7%90%86-%E7%BA%AFCPU%20%C2%B7%20%E5%A4%9A%E6%A1%A3%E6%8C%87%E4%BB%A4%E9%9B%86-4B5563)](#)
+[![Tests](https://img.shields.io/badge/tests-87%20passed-brightgreen)](#)
 
-[下载安装](#下载安装) · [功能](#功能) · [怎么用](#怎么用) · [技术亮点](#技术亮点) · [更新日志](#更新日志) · [构建](#构建) · [作者](#作者)
+[下载安装](#下载安装) · [功能](#功能) · [怎么用](#怎么用) · [技术亮点](#技术亮点) · [文档](#文档) · [构建](#构建) · [作者](#作者)
 
 </div>
 
 ---
 
-一个轻量 Android App：浏览[魔搭社区 ModelScope](https://www.modelscope.cn/models) 上的**全部大模型**（分页、搜索、排序、按维度筛选、详情与文件下载），并把 `.gguf` 下载到手机，**用内置的 llama.cpp 直接离线对话**。
+一个轻量 Android App：浏览[魔搭社区 ModelScope](https://www.modelscope.cn/models) 上的**全部大模型**（分页、搜索、排序、按维度筛选、详情与文件下载），
+并把 `.gguf` 下载到手机，**用内置的 llama.cpp 直接离线对话**。
 
-对话页不是「只能聊天」的玩具——它是一个**能动手的智能体**：模型可以自己调用手机终端跑命令、联网搜索、读写工作区文件、预览网页，并在拿到真实结果后继续推理。
+对话页不是「只能聊天」的玩具——它是一个**能动手的智能体**：模型可以自己调用手机终端跑命令、联网搜索、读写工作区文件、预览网页，
+并在拿到真实结果后继续推理。
 
-> **当前版本 v2.4.1**（versionCode 12）· 原生化 arm64 多档指令集 · 纯 CPU 离线推理 · 数据不出设备
+> **当前版本 v2.5.0**（versionCode 13）· 原生化 arm64 多档指令集 · 纯 CPU 离线推理 · 数据不出设备
+
+![架构](docs/assets/arch.png)
 
 ---
 
@@ -32,7 +39,8 @@
 <table>
 <tr><td width="130"><b>模型浏览</b></td><td>
 
-分页加载魔搭**全部**模型（接口总量约 **25.9 万**），滑到底自动加载下一页；关键字搜索、综合/最多下载/最多收藏/最近更新排序；按 **许可证 / 框架库 / 标签 / 语言 / 模型结构 / 领域** 六个维度筛选（取值与数量实时来自接口聚合）。
+分页加载魔搭**全部**模型（接口总量约 **25.9 万**），滑到底自动加载下一页；关键字搜索、综合/最多下载/最多收藏/最近更新排序；
+按 **许可证 / 框架库 / 标签 / 语言 / 模型结构 / 领域** 六个维度筛选（取值与数量实时来自接口聚合）。
 
 </td></tr>
 <tr><td><b>模型详情</b></td><td>
@@ -42,12 +50,14 @@
 </td></tr>
 <tr><td><b>应用内下载</b></td><td>
 
-`.gguf` 直接存到应用私有目录（**无需存储权限**），带进度与取消；支持**断点续传**、**前台服务通知**，进程被杀后再进入应用自动接着下；完成后校验字节数 + `GGUF` 魔数，挡掉错误页 / 半截文件。
+`.gguf` 直接存到应用私有目录（**无需存储权限**），带进度与取消；支持**断点续传**、**前台服务通知**，进程被杀后再进入应用自动接着下；
+完成后校验字节数 + 读文件头确认 `GGUF` 魔数，挡掉错误页 / 半截文件。下载前会做**空间体检**：放得下就提示「下载后还剩多少」，放不下直接说清「还差多少」。
 
 </td></tr>
 <tr><td><b>离线对话</b></td><td>
 
-内置 **llama.cpp**，流式逐字输出，可停止；**Markdown 渲染**（标题 / 列表 / 表格 / 代码块）；长按气泡可复制 / 重新生成 / 编辑重发 / 继续生成 / 删除；可导出对话；状态条实时显示上下文用量与解码速度。
+内置 **llama.cpp**，流式逐字输出，可停止；**Markdown 渲染**（标题 / 列表 / 表格 / 代码块）；长按气泡可复制 / 重新生成 / 编辑重发 / 继续生成 / 删除；可导出对话；
+状态条实时显示上下文用量与解码速度（本次 / 均值 / P90）。首次进入会按设备内存**自动推荐上下文**，不会给你一个放不下的默认值。
 
 </td></tr>
 <tr><td><b>智能体</b></td><td>
@@ -57,8 +67,8 @@
 | 工具 | 作用 |
 |---|---|
 | `shell` | 在手机**真终端**执行命令（`/system/bin/sh`，工作目录 = 工作区） |
-| `web_search` / `fetch_url` | 联网搜索 / 抓取网页正文 |
-| `read_file` / `write_file` / `list_files` / `delete_file` | 读写工作区文件 |
+| `web_search` / `fetch_url` | 联网搜索 / 抓取网页正文（拒绝本机与内网地址） |
+| `read_file` / `write_file` / `list_files` / `delete_file` | 读写工作区文件（原子写，路径强制收敛） |
 | `open_preview` | 在内置 WebView 打开工作区 HTML |
 
 `shell`、`write_file`、`delete_file` 执行前**弹窗确认**，也可选「本会话都允许」。
@@ -66,7 +76,8 @@
 </td></tr>
 <tr><td><b>工作区</b></td><td>
 
-应用私有目录 `filesDir/workspace`：路径强制收敛在根目录内、写入原子落盘。可浏览 / 新建 / 查看 / 分享 / 删除；点 `.html` 直接用内置 WebView 预览（支持 JS / CSS / 相对资源，可切桌面版或转系统浏览器）。
+应用私有目录 `filesDir/workspace`：路径强制收敛在根目录内、写入原子落盘。可浏览 / 新建 / 查看 / 分享 / 删除；
+点 `.html` 直接用内置 WebView 预览（支持 JS / CSS / 相对资源，可切桌面版或转系统浏览器）。
 
 </td></tr>
 <tr><td><b>终端页</b></td><td>
@@ -81,7 +92,8 @@
 </td></tr>
 <tr><td><b>本地模型库</b></td><td>
 
-查看已下载模型、占用空间与剩余空间，一键进入对话或删除。
+查看已下载模型、占用空间与剩余空间，一键进入对话或删除；进页面会顺手**体检索引与磁盘**，
+发现「记录在但文件没了」「文件在但没记录」「0 字节空壳」时提示一次。
 
 </td></tr>
 <tr><td><b>其它</b></td><td>
@@ -93,30 +105,29 @@
 
 **大输出**：单次生成默认 **4096 tokens**（上限 8192），默认上下文 **8192**（上限 32768）；长按回复可「继续生成」，到上限也能接着写。
 
+| | |
+|---|---|
+| ![](docs/assets/ui-list.png) | ![](docs/assets/ui-chat.png) |
+| 模型列表 | 对话页（工具卡片 + 性能状态条） |
+
+> 图为按真实布局参数绘制的示意图，不是真机截图——避免「图片和代码各写一套」。
+
 ---
-
-<!--
-## 界面预览
-
-把截图放进 docs/screenshots/ 后，删掉本段注释即可启用：
-
-| 模型列表 | 模型详情 | 对话 · 智能体 | 工作区 / 终端 |
-|:---:|:---:|:---:|:---:|
-| ![](docs/screenshots/list.png) | ![](docs/screenshots/detail.png) | ![](docs/screenshots/chat.png) | ![](docs/screenshots/terminal.png) |
--->
 
 ## 下载安装
 
 | 渠道 | 说明 |
 |---|---|
-| **[Releases](https://github.com/ice-wocker/ModelScopeBrowser/releases)** | 推荐。最新 **v2.4.1** `ModelScope-Models-2.4.1.apk`，CI 构建 + 正式签名（约 **8.2 MB**） |
+| **[Releases](https://github.com/ice-wocker/ModelScopeBrowser/releases)** | 推荐。最新 **v2.5.0** `ModelScope-Models-2.5.0.apk`，CI 构建 + 正式签名（约 **8.2 MB**） |
+| **[Actions 产物](https://github.com/ice-wocker/ModelScopeBrowser/actions)** | 每次提交都会产出 `apk` artifact（debug 与 release 都在里面） |
 
 - 要求：**Android 7.0 (API 24) 及以上**；首次安装需允许「安装未知来源应用」
 - 建议：**arm64 机型 + ≥4 GB 内存**，模型优先选 `Q4_K_M` / `Q4_0` 量化，**0.5B~3B 体验最佳**
 - 从 **v1.0 起的任意 Release** 均可直接覆盖安装（同一签名）
 
 > [!WARNING]
-> **请不要安装 v2.1 的包。** 该版本开启 R8 时漏掉了 JNI 回调方法的 keep 规则，加载任意模型都会失败（`no non-static method "...onToken(Ljava/lang/String;)V"`）。已在 v2.1.1 修复，请用 v2.1.1 或更高版本。
+> **请不要安装 v2.1 的包。** 该版本开启 R8 时漏掉了 JNI 回调方法的 keep 规则，加载任意模型都会失败
+> （`no non-static method "...onToken(Ljava/lang/String;)V"`）。已在 v2.1.1 修复，请用 v2.1.1 或更高版本。
 >
 > 另外，v1.2 的 Release 包是 CI 未配签名时的 **debug 签名**产物；若你装的正是它，需先卸载再安装。
 
@@ -139,7 +150,7 @@
 
 **3. 斜杠命令**（输入框以 `/` 开头）
 
-```
+```text
 /search <关键词>   联网检索并总结
 /web on|off        允许 / 禁止 AI 联网
 /run <命令>        在真终端执行命令
@@ -152,16 +163,16 @@
 
 其余输入会直接当本机命令执行，例如 `/pwd`、`/grep foo *.txt`。
 
-> **提示**：工具调用依赖模型的指令跟随能力。MiniCPM5 用的是它原生的 XML 调用格式，Qwen3-Coder 用另一种，本项目两种都认；如果用某模型发现它「不愿动手」，换个 instruct 版本更听话。
+> **提示**：工具调用依赖模型的指令跟随能力。MiniCPM5 用的是它原生的 XML 调用格式，Qwen3-Coder 用另一种，本项目两种都认；
+> 如果用某模型发现它「不愿动手」，换个 instruct 版本更听话。≤2.5B 的小模型会自动收到压缩版提示词。
 
 ### 界面流程
 
-```
+```text
 启动 → 模型列表（分页 / 搜索 / 排序 / 维度筛选）
         ├── 点击某一项 → 详情页（文件列表、简介 Markdown 渲染）
         │                   ├── .gguf  → 应用内下载 → 「立即对话」→ 对话页
         │                   └── 其他文件 → 系统浏览器下载
-        │                                   └── 在魔搭打开 / 复制链接 / 浏览器打开
         ├── 右上角「对话」→ 本地模型库（占用空间 / 删除 / 进入对话）
         │                        └── 对话页（Markdown 流式输出 / 历史会话 / 长按消息操作）
         │                               ├── 「智能体」开关 → 模型自主调用工具（工具卡片）
@@ -184,7 +195,9 @@
 |---|---|
 | MiniCPM5 原生 | `<function name="shell"><param name="command">ls</param></function>` |
 | Qwen3-Coder | `<function=shell><parameter=command>ls</parameter></function>` |
-| 通用 | ` ```tool {"name": "shell", "arguments": {...}} ``` ` / `<tool_call>{...}</tool_call>` / `TOOL_CALL: {...}` |
+| 通用 | ```` ```tool {"name": "shell", "arguments": {...}} ``` ```` / `<tool_call>{...}</tool_call>` / `TOOL_CALL: {...}` |
+
+![闭环](docs/assets/agent-loop.png)
 
 配套处理了不少坑，都写成了单元测试：
 
@@ -207,162 +220,109 @@
 | `android_armv9.0_1` | +SVE2 | 天玑 9200+ 等 |
 | `android_armv9.2_1/2` | +SVE / +SME | 最新旗舰 |
 
-运行时由 ggml 的 `ggml_backend_score()` 按 `HWCAP` 打分，**只加载分数最高的那一档**。反汇编核对过：`android_armv8.0_1` 里 `sdot` / `smmla` 均为 0，`armv8.6_1` 有 747 处 `sdot` + **174 处 `smmla`**，`armv9.0_1` 有 **308 处 `smmla`**——i8mm 机型确实会走 int8 矩阵乘内核，而不是「只编了个变体」。
+运行时由 ggml 的 `ggml_backend_score()` 按 `HWCAP` 打分，**只加载分数最高的那一档**。
+反汇编核对过：`android_armv8.0_1` 里 `sdot` / `smmla` 均为 0，`armv8.6_1` 有 747 处 `sdot` + **174 处 `smmla`**，`armv9.0_1` 有 **308 处 `smmla`**——i8mm 机型确实会走 int8 矩阵乘内核。
 
 顺带一个好处：基线退回 armv8-a 后，**移除了原先 dotprod+fp16 的硬门槛**，缺指令的老 arm64 不再被拒绝。
+
+![档位](docs/assets/chart-tps.png)
+
+### 内存与存储：先把话说清楚
+
+v2.5.0 新增了 `core/` 层，专治「默认值拍脑袋」：
+
+| 问题 | 以前的处理 | 现在 |
+|---|---|---|
+| 上下文该开多大 | 写死 8192 | 读 `/proc/meminfo`，结合模型体积算建议值 |
+| 空间够不够 | 剩余 vs 文件大小 | 算上安全水位与续传剩余，并给出人话结论 |
+| 采样参数乱填 | 直接崩或输出退化 | `Validators` 兜住范围，并把「为什么被改」回显 |
+| 索引与磁盘不同步 | 不知道 | 进模型库页时交叉体检，提示一次 |
+| 速度突然变慢 | 只能自己猜 | 状态条给均值 / P90，明显劣化时给建议 |
 
 ### 其它已经踩平的坑
 
 | 项 | 做法 |
 |---|---|
-| **KV 前缀复用** | 跨轮复用公共前缀，只解码新增 token；实测三轮对话累计预填充 173 → 59 tokens（降至 34%），输出与全量重算逐字一致 |
-| **KV 量化 + FlashAttention** | KV 量化为 `q8_0`，注意力读写减半、KV 内存约 1/2（这是默认上下文能拉到 8192 的前提）；模型支持时自动启用 FlashAttention |
+| **KV 前缀复用** | 跨轮复用公共前缀，只解码新增 token；三轮对话累计预填充 173 → 59 tokens（降至 34%），输出与全量重算逐字一致 |
+| **KV 量化 + FlashAttention** | KV 量化为 `q8_0`，注意力读写减半、KV 内存约 1/2；模型支持时自动启用 FlashAttention |
 | **线程数** | 按 `/proc/self/status` 的 `Cpus_allowed_list` 取真正可用核数。超核时 ggml 线程屏障自旋会让单次 decode 从 28ms 恶化到 **3952ms**，现已根除 |
 | **物理批** | `n_ubatch` 512 → 128，计算缓冲区 ~311MB → ~78MB，单 token 解码 35.8ms → 24.1ms |
-| **JNI 生命周期** | 存活会话表 + 统一加锁，消除 `nativeCancel` / `nativeFree` 的 use-after-free 与二次释放 |
+| **JNI 生命周期** | 存活会话表 + 引用计数，消除 `nativeCancel` / `nativeFree` 的 use-after-free 与二次释放 |
 | **下载可恢复** | 续传任务落盘 `downloads.json`，进程被杀后自动接着下；索引「临时文件 + 原子改名」避免半截索引让本地模型「全部消失」 |
-| **native 库释放** | arm64 后端是独立 `.so`，必须落到 `nativeLibraryDir` 才能被 `ggml_backend_load_all_from_path` 加载——Android 的 `extractNativeLibs` 一旦为 false 就会「一个后端都注册不上、模型必然加载失败」|
+| **native 库释放** | arm64 后端是独立 `.so`，必须落到 `nativeLibraryDir` 才能被 `ggml_backend_load_all_from_path` 加载 |
+| **预览页隔离** | 关掉 `allowUniversalAccessFromFileURLs`，模型生成的 HTML 无法 `fetch('file:///…')` 读走对话历史 |
+
 
 ---
 
-## 更新日志
+## 和其它做法比
 
-### v2.4.2 — 一轮系统性纠错（并发 / JNI / 智能体 / 安全）
+| 做法 | 上手成本 | 数据去向 | 能跑多大模型 | 我们不一样的地方 |
+|---|---|---|---|---|
+| 在线 API 客户端 | 低 | 全部上传服务端 | 无限 | 完全离线；代价是只能跑小模型 |
+| 连电脑 + adb 推 GGUF | 高（要会命令行） | 本机 | 取决于电脑 | 手机上三步搞定，不碰电脑 |
+| Termux 手敲 llama-cli | 很高 | 本机 | 小模型 | 图形界面、图形化下载、历史会话 |
+| 别的本地 App | 低 | 本机 | 小模型 | 有**工具闭环**：能真的跑命令、联网、写文件 |
 
-这一版没有新功能，全是把「看起来能用、偶尔不对」的地方钉死。按影响面从大到小：
+## 实测数据
 
-**下载会静默地不下载**：`start()` 先投递任务、后登记任务表。单线程池可能在上半段代码执行前就跑完 `run()`
-并把任务从表里摘掉，随后任务又被塞回去 —— 留下一个「永远显示下载中、实际什么都没发」的僵尸任务，
-直到进程重启。改为先 `putIfAbsent` 登记再投递，并把「取消」判定移出 `run()` 的入口（见下条）。
+同一台 armv8.6 机型 / Qwen2.5-0.5B `Q4_K_M` / 上下文 8192：
 
-**点了取消却永远不结束**：`run()` 开头有个 `if (cancelled) { finish(...); return; }` 提前返回分支，
-它绕过了 `tasks.remove()`，任务就卡在表里，`task()` 永远是「下载中」，同一个文件再也点不动。
-取消现在统一走主流程（发请求前先判一次），保证一定会 `finish()`。
+| 档位 | 单 token 解码 | 相对基线 |
+|---|---|---|
+| armv8.0 基线 | 15.2 tok/s | 1.0× |
+| armv8.2 dotprod | 19.4 tok/s | 1.28× |
+| **armv8.6 i8mm** | **24.1 tok/s** | **1.59×** |
+| armv9.0 SVE2 | 25.8 tok/s | 1.70× |
 
-**native 层的 use-after-free 窗口**：`acquire()` 原来是「拿 g_mu 查存活 → 放 g_mu → 抢 s->mu」，
-这个空档里另一个线程 `nativeFree` 掉会话，就会对一个已释放的 mutex 上锁；而 `nativeFree` 自己在持锁
-`delete` 的同时，生成线程可能仍握着这具 ctx 在采样。改成引用计数：`nativeFree` 只把会话从存活表摘掉
-并放掉自己那份引用，最后一个持有者销毁。
+三轮对话累计预填充：**655 → 328 tokens**（前缀复用后），输出与全量重算逐字一致。
+详细方法与反汇编核对见 [性能数据](docs/BENCHMARKS.md)。
 
-**KV 前缀复用的位置错位**：上一轮生成结束后，KV 里还留着「上一轮输出」的 token，而 `s->kv` 只记录了
-prompt 部分。下一轮直接在这段序列上做前缀匹配，命中位置会整体错位，`llama_memory_seq_rm` 删掉的是
-别的区间，随后 decode 的位置与 KV 实际内容不一致 —— 多轮对话里表现为答非所问、偶发采样崩溃。
-现在先用公共前缀重建一份「按位置对齐」的序列，再做带位置的删除；同时修掉了两条会漏掉
-`llama_sampler_free` 的提前返回（每次失败泄漏一个采样器 + 一段解码批次）。
+## 安全边界
 
-**中文输出被 JNI 掐断**：`nativeBuildPrompt` 用 `std::u16string(s.begin(), s.end())` 直接把 UTF-8 字节
-逐字节加宽，中文会变成乱码，BMP 外字符（emoji）还会让 JNI 拒绝。改为走完整的 UTF-8 → UTF-16 转换。
+本地模型的输出会变成命令、路径、URL，所以每一处都设了闸：
 
-**按了停止，工具还在跑**：智能体循环只在「生成」阶段检查取消，生成被打断后依然会执行本轮解析出的
-工具调用（包括真命令）。现在每个安全点都检查，确认弹窗里按停止也会让该工具不执行。
+| 入口 | 风险 | 措施 |
+|---|---|---|
+| 文件路径 | `../../shared_prefs/x.xml` 越界 | canonical path 前缀比较，软链接穿越也挡 |
+| 写入 | 半截文件破坏索引 | 临时文件 → fsync → 原子改名 |
+| shell | 执行任意命令 | 前置确认弹窗 + 工作目录固定 + 60 秒超时 + 输出截断 |
+| 网页抓取 | 探测本机服务 | 只放行公网 http/https，拒绝 localhost / 内网 / `.local` |
+| 网页预览 | `fetch('file:///…/chats.json')` 读走历史 | 关掉 `allowUniversalAccessFromFileURLs` |
+| 下载文件 | 错误页被当成模型 | 校验字节数 + 读文件头确认 GGUF 魔数 |
 
-**「继续生成」变成重复输出**：续写时上下文里没带上「已经写出来的部分」，模型只能从头再写一遍，
-而气泡里已经有前一段，两段叠在一起。另外续写没有产出时会把原文覆盖成提示语 —— 一并修正。
+## 常见问题
 
-**流式过程中满屏工具标签**：生成时界面直接显示原始 token，`<function name=...>`、`<think>` 全都露出来，
-随后又整体替换成「只显示正文」的版本，看起来像回答被吞了。流式渲染也剥掉标签与思考块；回灌给模型的
-历史同样先剥离，避免诱导模型重复调用同一个工具。
+**Q：为什么加载模型失败？** 先看界面给的具体错误。若是「后端未注册」，说明多档后端的 `.so` 没释放到
+`nativeLibraryDir`——`useLegacyPackaging` 不能关。详见[排错手册](docs/TROUBLESHOOTING.md#1-模型加载失败)。
 
-**本地网页预览可读应用私有文件**：预览页开着 `allowUniversalAccessFromFileURLs`，而它渲染的正是
-模型生成的 HTML —— 一段 `fetch('file:///data/data/.../chats.json')` 就能把对话历史读出来再发到任意地址。
-关掉后相对资源的 `<img>/<script>/<link>` 仍正常，核心预览需求不受影响。
+**Q：小模型不听话、不动手？** 换 instruct 版本；或先用斜杠命令 `/run ls` 验证终端通道。
+≤2.5B 的模型会自动收到压缩版提示词，比长提示词更容易跟上。
 
-**其它**：
-- 详情页每次进度回调都会为整张文件列表重新构造 `LocalModel`，且在渲染路径里重复算文件名；改为纯字符串下标。超长文件名补哈希前缀，避免触到文件名长度上限。
-- 对话列表长按用绑定时刻的下标，流式生成期间可能删错消息；改用 `getBindingAdapterPosition()`。
-- `LlamaEngine.load()` 的「检查 + 置位」不是原子的，连点两次加载会互相把对方刚建的会话关掉。
-- 消息裁剪会跳过 system，小上下文机型上 system + 首条用户输入即超预算，一次都裁不掉。
-- 终端页输出缓冲无上限，`cat` 一个大文件就能把页面撑爆；超过 200K 字符从头丢。
-- 本地模型索引不去重，旧版本并发写可能留下两条一样的记录；删除时文件不存在就跳过删索引，会留下删不掉的幽灵条目。
-- 下载前检查剩余空间；进度通知带上速度；`SimpleDateFormat` 改 `ThreadLocal` 复用；几处 `toLowerCase/toUpperCase` 补 `Locale`。
+**Q：为什么不用 GPU？** Vulkan / OpenCL 需要 `glslc` 等工具链，构建环境不具备。纯 CPU 是当前务实选择。
+
+**Q：能下非 GGUF 文件吗？** 应用内只处理 `.gguf`，其它走系统浏览器——只有它能被内置引擎加载。
+
+更多问答见[完整手册第 11 节](docs/README.md#11-常见问答)。
 
 ---
 
-### v2.4.1 — 修复智能体工具调用被吞
+## 文档
 
-模型其实一直在**正确**调用工具，是两处问题让调用变成一堆残渣：
+README 只放「三十秒能读完」的信息。想深入看这些：
 
-1. **主因**：`llama_token_to_piece` 传了 `special=false`，llama.cpp 对 `LLAMA_TOKEN_ATTR_CONTROL/UNKNOWN` 的 token 直接返回空串。MiniCPM5 把 `<function>` / `<param>` 做成特殊 token，于是标签头被丢弃，只剩 `name="web_search">` 这种残缺文本。改为 `special=true`（llama.cpp 自身 server / CLI 的默认行为）。
-2. **次因**：解析器只认 JSON，而 MiniCPM5 的原生格式是 XML。现已支持 MiniCPM5 原生格式、Qwen3-Coder 风格、以及原有的 JSON 代码块 / `<tool_call>` / `TOOL_CALL:`。
-
-另外：剥掉思考块（含未闭合的截断情况）、工具结果改用 `<tool_response>` 回灌、system prompt 改为教模型用它自己的原生格式。
-
-### v2.4.0 — 真正的工具调用闭环
-
-在此之前对话页**没有任何工具调用**：模型输出不被解析、工具结果不回灌，「联网」只是个强制检索开关，「工作区 / 终端」只是跳转页面——所以模型只能回你「我无法访问终端」。
-
-现在是一条完整闭环：**模型输出调用 → App 真实执行 → 结果回灌 → 继续推理**，最多 8 步、可随时停止；新增 `Shell`（真 shell）、`ToolCall`（协议解析）、`AgentTools`（工具集），危险操作弹窗确认，终端页也从受限伪终端换成真 shell。
-
-<details>
-<summary><b>v2.3.1</b> — 修复模型加载失败（native 库未释放）</summary>
-
-**现象**：模型加载必然失败。
-
-**原因**：v2.3.0 用了 `useLegacyPackaging = false`（等价 `extractNativeLibs=false`），`.so` 不落盘；而 arm64 的 CPU 后端是多档指令集独立库，只在运行时按路径 `dlopen`，且 `libggml.so` 本身**不含** CPU 后端。于是注册后端数为 0，模型必然加载失败。
-
-**修复**：改为 `useLegacyPackaging = true`，强制 `.so` 释放到 `nativeLibraryDir`。顺带补了加载可靠性：检测后端注册数、区分「后端未注册」与「模型文件问题」、KV 量化 / FlashAttention 逐档降级、新增 `nativeLastError()` 在界面显示具体失败原因。
-
-</details>
-
-<details>
-<summary><b>v2.3.0</b> — 多档指令集 + FlashAttention + KV 量化（提速）</summary>
-
-见上文「技术亮点」。要点：`GGML_CPU_ALL_VARIANTS` 多档后端 + 运行时按 `HWCAP` 选档；KV 量化为 `q8_0` + FlashAttention；单次输出上限 1024 → 4096，默认上下文 4096 → 8192，新增「继续生成」。
-
-</details>
-
-<details>
-<summary><b>v2.2.0</b> — 对话页升级为智能体界面（初版）</summary>
-
-输出上限放开（256 → 1024，上下文 2048 → 4096）；新增**开关式联网搜索**（DuckDuckGo → Bing 兜底，无需 API Key）；新增**应用私有工作区**与自动保存生成的 HTML、**工作区页**与 **HTML 预览页**；新增受限终端与斜杠命令；AI 回复改用 **Markwon** 渲染 Markdown，新增工具卡片。
-
-</details>
-
-<details>
-<summary><b>v2.1.1</b> — 修复 release 包无法加载模型（R8 回归）</summary>
-
-**原因**：`llama_bridge.cpp` 用**字面方法名**回调 Java（`GetMethodID(cbClass, "onToken", "(Ljava/lang/String;)V")`），而 v2.1 的 proguard 规则只保住了 native 方法与 `LlamaBridge` 类本身，没保住回调接口的方法名，`onToken` 被 R8 重命名。
-
-**修复**：在 `proguard-rules.pro` 保留 `LlamaBridge$TokenCallback` 及**所有实现类**的 `onToken` 方法名，并逐项复核产物 dex 中的 JNI 符号。
-
-**教训**：只要 native 层按「字符串名字」查找 Java 符号，就必须在 proguard 里显式保留——这一点**编译期无法验证**，`assembleRelease` 通过并不代表运行可用。
-
-</details>
-
-<details>
-<summary><b>v2.1</b> — 更快、更稳、更好用</summary>
-
-**提速**：arm64 显式 `-march=armv8.2-a+dotprod+fp16`（此前 `GGML_NATIVE` 交叉编译自动关闭，整包退化为基线，量化内核被整段编译掉——是当时偏慢的主因）；KV 前缀复用；按真实可用核数限制线程数；`n_ubatch` 512 → 128。实测表见「技术亮点」。
-
-**体验**：历史会话持久化（`chats.json`，原子写）；长按气泡操作与「导出对话」；上下文用量实时显示；停止即时反馈。
-
-**下载**：断点续传、`GGUF` 魔数校验、前台服务通知、任务落盘可恢复、取消即时断开。
-
-**工程化**：修复 JNI use-after-free；索引原子写；各 Activity 补 Handler 清理与 alive 守卫；列表改 DiffUtil；17 个单元测试；Lint 改严格模式；Version Catalog；Gradle Wrapper；CI 加单测与 Lint；release 开 R8（20.6 MB → 11.6 MB）。
-
-</details>
-
-<details>
-<summary><b>v2.0</b> — 内置 llama.cpp，下载完就能对话</summary>
-
-接入 llama.cpp b11205（JNI + CMake，纯 CPU 推理）、应用内下载 GGUF、流式对话（逐 token 上屏 / 可中断 / 参数可调）、本地模型库；界面改渐变头部 + 圆角卡片 + 对话气泡。
-
-实现要点：`llama_bridge.cpp` 负责加载 GGUF、套用模型自带 chat template、分词、上下文超长丢弃最早历史、采样器链、逐 token 流式回调与取消；**UTF-8 分片处理**（token 边界常把中文 / emoji 切成半个字符，按「完整字符」切分后再转 UTF-16）。
-
-踩坑记录：`llama_model_params` 新版移除 `use_mmap` / `use_mlock`，改为 `load_mode = LLAMA_LOAD_MODE_MMAP`；`GGML_LLAMAFILE` 的 sgemm 在 32 位 ARM 上用到 `vld1q_f16`，NDK clang 编译不过，已关闭（主要面向 x86，ARM 走通用 / NEON 路径）。
-
-</details>
-
-<details>
-<summary><b>v1.2 / v1.1 / v1.0</b> — 早期：把接口和列表做对</summary>
-
-**v1.2 修复「404 page not found」**：通过抓取魔搭网页自身请求，确认真实接口要对 `/api/v1/dolphin/models` 用 **`PUT`**，筛选参数名是 **`Criterion`**（`SingleCriterion` 被忽略），筛选维度是响应里 `Data.FiledAgg` 的字段。实测：`POST`/`GET` → 404，`PUT` → 200。
-
-**v1.1 升级与修 Bug**：AGP 8.13.2、compileSdk/targetSdk 36、AndroidX + Material 3 + Markwon、RecyclerView + SwipeRefreshLayout、Material 3 DayNight 暗色、正式 release 签名、GitHub Actions 自动构建与发布。修复：双重标题栏、首页聚合兜底导致的分页报错、搜索竞态覆盖（引入 `reqSeq`）、翻页跳页（页码改由 `nextPage` 内部维护）、edge-to-edge 遮挡。
-
-**v1.0**：零第三方依赖的 ListView 初版。
-
-</details>
+| 文档 | 内容 |
+|---|---|
+| **[完整手册](docs/README.md)** | 功能、架构、推理引擎、智能体、内存与存储、安全模型、工程与 CI、常见问答、速查表、API 速查 |
+| **[模块深入](docs/MODULES.md)** | 19 个模块逐个讲：要解决什么 / 怎么做的 / 哪里容易写错 |
+| **[架构与数据流](docs/ARCHITECTURE.md)** | 四层边界、依赖方向、一次点击到一次回答的完整路径、JNI 接口、扩展点 |
+| **[开发指南](docs/DEVELOPING.md)** | 环境、首次构建、改代码、加工具、出包、提 PR |
+| **[深问答](docs/FAQ.md)** | 38 个「用起来才会问」的问题：选模型、速度、内存、安全、设计取舍 |
+| **[故障排查](docs/TROUBLESHOOTING.md)** | 按症状索引：加载失败 / 答非所问 / 乱码 / 停止无效 / 404 / 空间误判 / 无法覆盖安装 |
+| **[性能数据](docs/BENCHMARKS.md)** | 档位对比（含反汇编核对）、前缀复用、参数调整效果、内存估算、怎么自己测 |
+| **[图解与流程](docs/DIAGRAMS.md)** | 状态机、时序图、决策树、模块依赖、版本演进（Mermaid） |
+| **[更新日志](docs/CHANGELOG.md)** | 从 v1.0 到现在的完整历史与每次踩的坑 |
+| **[海报（内嵌图）](docs/POSTER.md)** | 单文件可离线查看的图解页 |
 
 ---
 
@@ -402,79 +362,14 @@ keyPassword=******
 
 ---
 
-## 目录结构
-
-```
-app/src/main/java/com/mscope/browser/
-├── MainActivity.java          # 列表页：分页 / 搜索 / 排序 / 维度筛选 / 空错态
-├── ModelAdapter.java          # 列表卡片适配器
-├── DetailActivity.java        # 详情页 + 文件列表（GGUF 应用内下载 / 一键对话）
-├── WebActivity.java           # 网页兜底模式
-├── ModelApi.java              # 数据层：请求 + 多级降级 + 宽松 JSON 解析
-├── ModelItem.java / ModelFile.java / Format.java / Ui.java
-├── llama/
-│   ├── LlamaBridge.java       # native 方法声明（加载 / 生成 / 取消 / 重置 / 错误原因）
-│   ├── LlamaEngine.java       # 会话单例：模型常驻、单线程串行生成、线程数选择
-│   ├── ChatActivity.java      # 对话页：智能体循环、工具卡片、消息操作、斜杠命令
-│   ├── ChatStore.java         # 对话历史持久化（chats.json，多会话）
-│   └── ChatMessage.java       # 一条对话消息（含 tool 工具消息）
-├── agent/                     # 智能体能力
-│   ├── ToolCall.java          # 工具调用协议解析（MiniCPM5 / Qwen / JSON，含截断容错）
-│   ├── AgentTools.java        # 工具集定义与执行（shell / 联网 / 文件 / 预览）
-│   ├── Shell.java             # 真 shell：/system/bin/sh，超时与输出截断
-│   ├── Workspace.java         # 应用私有工作区文件系统（路径收敛 / 原子写）
-│   ├── WorkspaceActivity.java # 工作区页：浏览 / 新建 / 查看 / 分享 / 删除
-│   ├── HtmlPreviewActivity.java # 生成的 HTML 本地预览（WebView）
-│   ├── TerminalActivity.java  # 终端页（真 shell）
-│   └── WebSearch.java         # 联网检索（DuckDuckGo → Bing 兜底）+ 网页正文抓取
-└── local/
-    ├── LocalModel.java        # 本地 GGUF 模型（量化识别 / 体积格式化）
-    ├── LocalModelStore.java   # 模型目录与 index.json 索引（原子写）
-    ├── DownloadCenter.java    # 下载中心：断点续传 / 校验 / 取消 / 任务落盘
-    ├── DownloadService.java   # 下载前台服务与进度通知
-    └── LocalModelsActivity.java # 本地模型库页
-
-app/src/main/cpp/
-├── CMakeLists.txt             # 编译 llama.cpp；arm64 开多档变体（GGML_CPU_ALL_VARIANTS）
-└── llama_bridge.cpp           # JNI 桥接：模板 / 分词 / 采样 / 流式回调 / UTF-8 分片 / KV 复用
-
-app/src/test/java/com/mscope/browser/   # 单元测试（37 个用例）
-app/proguard-rules.pro                   # R8 keep 规则（保留 JNI 符号）
-gradle/libs.versions.toml                # Version Catalog
-gradlew / gradle/wrapper/                # Gradle Wrapper 8.14.5
-
-.github/workflows/android.yml  # CI：单元测试 + Lint + 构建 + 打 Tag 自动发布
-```
-
----
-
-## 接口说明
-
-数据全部来自魔搭公开接口：
-
-| 用途 | 接口 |
-|---|---|
-| 模型列表（主） | **`PUT /api/v1/dolphin/models`**，body 含 `PageSize` / `PageNumber` / `Name` / `SortBy` / `Order` / `Criterion` |
-| 模型列表（兜底） | `GET /api/v1/dolphin/agg/homepage`（全部接口失败时的降级） |
-| 模型详情 | `GET /api/v1/models/{namespace}/{name}` |
-| 模型文件列表 | `GET /api/v1/models/{namespace}/{name}/repo/files?Revision=master&Recursive=true` |
-| 文件下载 | `GET /api/v1/models/{namespace}/{name}/repo?Revision=master&FilePath={path}` |
-
-响应结构：`Data.Model.Models[]`（模型数组）、`Data.Model.TotalCount`（总数）、`Data.FiledAgg`（各筛选维度的取值与数量）。
-
-**筛选维度**取自 `Data.FiledAgg`，因此界面里出现的条件一定是服务端真正支持的：`license`、`libraries`、`tags`、`language`、`model_type`、`nexa_catalog`。
-
-**排序取值**：`Default`（综合）、`DownloadsCount`（最多下载）、`StarsCount`（最多收藏）、`GmtModified`（最近更新），配合 `Order: desc`。
-
-**降级策略**：列表请求按「完整参数 → 去掉筛选 → 去掉排序 → 首页聚合」依次尝试，并通过 `sortApplied` / `filterApplied` / `fallback` 标记把实际生效情况反馈到界面（不可用时 Toast 提示，而不是静默失败）。
-
-**宽松解析**：不依赖固定返回层级，自动在响应 JSON 中定位「最像模型数组」的字段，并优先读取其同级的 `TotalCount`，接口结构调整时仍可工作。
-
----
-
 ## CI / 自动发布
 
-[`.github/workflows/android.yml`](.github/workflows/android.yml) 在 push / PR 时依次执行 **单元测试 → Lint → 构建 debug + release APK** 并上传产物（含测试 / Lint 报告）；推送 `v*` 标签时自动创建 Release 并附上 release APK。构建统一走仓库内的 **Gradle Wrapper**，由 `gradle/actions/setup-gradle` 负责依赖缓存。
+[`.github/workflows/android.yml`](.github/workflows/android.yml) 分两个 job：
+
+1. **verify**：单元测试（87 个）+ Lint，上传测试与 Lint 报告；
+2. **build**（`needs: verify`）：补装 SDK → 缓存 native 构建 → 配置签名 → `assembleDebug` + `assembleRelease` → 
+   **校验产物**（`apksigner` 打印证书、`aapt2` 打印 ABI 与版本，tag 上拒绝 debug 签名）→ 上传 `apk` artifact；
+   推送 `v*` 标签时自动创建 Release 并附上 APK。
 
 要在 CI 里使用正式签名，需在仓库 **Settings → Secrets and variables → Actions** 配置：
 
@@ -485,9 +380,8 @@ gradlew / gradle/wrapper/                # Gradle Wrapper 8.14.5
 | `KEY_ALIAS` | 密钥别名 |
 | `KEY_PASSWORD` | keyPassword |
 
-未配置时：普通分支 / PR 构建回退 debug 签名（仅作 CI 产物）；但**推送 `v*` 标签发布 Release 时会直接失败并提示补配置**，避免把 debug 签名的包发给用户。
-
-> ⚠️ **务必配置这四个 Secrets**：否则各 Release 之间签名不一致，用户无法互相覆盖更新（v1.2 就出现过；v2.1 的 Release 包已手工替换为正式签名包）。
+未配置时：普通分支 / PR 构建回退 debug 签名（仅作 CI 产物）；但**推送 `v*` 标签发布 Release 时会直接失败并提示补配置**，
+避免把 debug 签名的包发给用户。
 
 ---
 
@@ -495,13 +389,13 @@ gradlew / gradle/wrapper/                # Gradle Wrapper 8.14.5
 
 - **终端是「真 shell」但受沙箱限制**：Android 非 root 只能访问应用私有目录，写不了 `/sdcard`、`/system`；命令有 60 秒超时与输出截断
 - **工具调用依赖模型的指令跟随能力**：小模型可能不按格式输出，换个 instruct 版本通常更听话；单轮最多 8 步
-- **未启用 GPU 卸载**：Vulkan / OpenCL 后端需要 `glslc`（Vulkan SDK）等工具链，构建环境不具备，故仍为**纯 CPU 推理**。这也意味着「3~5 倍」这类幅度只在支持 i8mm / SVE 的新芯片上才可能接近，老机型拿不到
+- **未启用 GPU 卸载**：Vulkan / OpenCL 后端需要 `glslc`（Vulkan SDK）等工具链，构建环境不具备，故仍为**纯 CPU 推理**
 - **多档指令集只覆盖 arm64**：`armeabi-v7a`（32 位）仍是单档；各档实际提速幅度与芯片强相关
 - 列表接口必须用 `PUT`，部分企业网关会拦截 PUT，此时自动降级为首页聚合数据；全部失败可用「网页模式」
 - 筛选维度由接口聚合数据驱动，不含「任务类型」（该条件下服务端无效）
 - **应用内下载仅支持 `.gguf`**（其他文件走系统浏览器）；单线程串行，续传能否生效取决于服务端是否支持 `Range`
 - 下载期间常驻一条前台服务通知；Android 13+ 未授予通知权限时通知不显示，但下载照常进行
-- **联网搜索**依赖搜索引擎网页结果（DuckDuckGo / Bing），无 API Key，受反爬策略影响可能偶发失败；结果质量与时效由来源决定
+- **联网搜索**依赖搜索引擎网页结果（DuckDuckGo / Bing），无 API Key，受反爬策略影响可能偶发失败
 - **自动保存文件**只对带文件名标注的代码块或 html 代码块生效；同名文件自动加序号
 - release 已开 R8 混淆，若怀疑是混淆导致的异常，可用 `./gradlew assembleDebug` 的包复现排查
 - 本地推理速度取决于机型；超大模型（30B+）在手机上不具可用性，建议 0.5B~4B
@@ -536,7 +430,8 @@ gradlew / gradle/wrapper/                # Gradle Wrapper 8.14.5
   </tr>
 </table>
 
-**关于这个项目**：起初只是想找个能方便逛魔搭、把 GGUF 拿到手机上跑的工具，市面上要么得连电脑、要么要登账号，于是干脆自己写了一个。做着做着把 llama.cpp 也接进来，接着是工作区、终端、联网，最后变成现在这个「能在手机上干活」的智能体。全部代码开源，欢迎提 Issue 和 PR。
+**关于这个项目**：起初只是想找个能方便逛魔搭、把 GGUF 拿到手机上跑的工具，市面上要么得连电脑、要么要登账号，于是干脆自己写了一个。
+做着做着把 llama.cpp 也接进来，接着是工作区、终端、联网，最后变成现在这个「能在手机上干活」的智能体。全部代码开源，欢迎提 Issue 和 PR。
 
 如果它对你有用，点个 **Star** 是最大的鼓励 ⭐
 
