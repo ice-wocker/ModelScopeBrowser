@@ -14,9 +14,9 @@ the model can run shell commands, search the web and work with files.*
 [![Android](https://img.shields.io/badge/Android-7.0%2B%20(API%2024)-3DDC84?logo=android&logoColor=white)](#)
 [![llama.cpp](https://img.shields.io/badge/llama.cpp-b11205-000000)](#)
 [![推理](https://img.shields.io/badge/%E6%8E%A8%E7%90%86-%E7%BA%AFCPU%20%C2%B7%20%E5%A4%9A%E6%A1%A3%E6%8C%87%E4%BB%A4%E9%9B%86-4B5563)](#)
-[![Tests](https://img.shields.io/badge/tests-87%20passed-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-99%20passed-brightgreen)](#)
 
-[下载安装](#下载安装) · [功能](#功能) · [怎么用](#怎么用) · [技术亮点](#技术亮点) · [文档](#文档) · [构建](#构建) · [作者](#作者)
+[**English**](README.en.md) · [下载安装](#下载安装) · [功能](#功能) · [怎么用](#怎么用) · [技术亮点](#技术亮点) · [文档](#文档) · [构建](#构建) · [作者](#作者)
 
 </div>
 
@@ -94,6 +94,14 @@ the model can run shell commands, search the web and work with files.*
 
 查看已下载模型、占用空间与剩余空间，一键进入对话或删除；进页面会顺手**体检索引与磁盘**，
 发现「记录在但文件没了」「文件在但没记录」「0 字节空壳」时提示一次。
+
+</td></tr>
+<tr><td><b>双语界面</b></td><td>
+
+**中英双完整支持**：界面文案（216 条）、推理提示词、工具说明与执行结果、错误与建议文案全部双语，各一份真源。
+「关于 → 语言」可切「跟随系统 / 中文 / English」，**不用改系统设置**，切完当前页直接换语言；
+模型提示词会跟着界面语言走，不会出现「英文界面、中文提示词」。
+`values`（英文）与 `values-zh`（中文）逐条对齐，`MissingTranslation` 参与 Lint 校验，漏译直接构建失败。
 
 </td></tr>
 <tr><td><b>其它</b></td><td>
@@ -323,6 +331,7 @@ README 只放「三十秒能读完」的信息。想深入看这些：
 | **[图解与流程](docs/DIAGRAMS.md)** | 状态机、时序图、决策树、模块依赖、版本演进（Mermaid） |
 | **[更新日志](docs/CHANGELOG.md)** | 从 v1.0 到现在的完整历史与每次踩的坑 |
 | **[海报（内嵌图）](docs/POSTER.md)** | 单文件可离线查看的图解页 |
+| **[English README](README.en.md)** | 英文项目介绍（应用本身中英双语，长文档目前为中文） |
 
 ---
 
@@ -366,7 +375,7 @@ keyPassword=******
 
 [`.github/workflows/android.yml`](.github/workflows/android.yml) 分两个 job：
 
-1. **verify**：单元测试（87 个）+ Lint，上传测试与 Lint 报告；
+1. **verify**：单元测试（99 个）+ Lint，上传测试与 Lint 报告；
 2. **build**（`needs: verify`）：补装 SDK → 缓存 native 构建 → 配置签名 → `assembleDebug` + `assembleRelease` → 
    **校验产物**（`apksigner` 打印证书、`aapt2` 打印 ABI 与版本，tag 上拒绝 debug 签名）→ 上传 `apk` artifact；
    推送 `v*` 标签时自动创建 Release 并附上 APK。

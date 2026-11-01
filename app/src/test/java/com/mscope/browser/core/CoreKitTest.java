@@ -6,6 +6,9 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import com.mscope.browser.i18n.Lang;
+
+import org.junit.After;
 import org.junit.Test;
 
 import java.io.File;
@@ -18,6 +21,15 @@ import java.util.List;
 
 /** core 包的行为约定：改坏了不会编译失败，只会在真机上炸。 */
 public class CoreKitTest {
+
+    /**
+     * 这些用例断言的是中文文案，必须显式把语言钉住 —— 否则在英文 CI 机器上跑，
+     * 断言会挂在「文案本来就是英文」上，看起来像功能坏了。
+     */
+    @After
+    public void resetLang() {
+        Lang.followSystem();
+    }
 
     @Test
     public void parseMeminfo_readsTotalAndAvailable() {
@@ -81,6 +93,7 @@ public class CoreKitTest {
 
     @Test
     public void check_insufficientWhenNeedMoreThanFree() {
+        Lang.setChinese(true);
         StorageGuard.Check c = StorageGuard.check(500L * 1024 * 1024, 800L * 1024 * 1024, 0);
         assertEquals(StorageGuard.Verdict.INSUFFICIENT, c.verdict);
         assertFalse(c.canStart());
@@ -97,6 +110,7 @@ public class CoreKitTest {
 
     @Test
     public void check_okWithResumeHint() {
+        Lang.setChinese(true);
         StorageGuard.Check c = StorageGuard.check(8L * 1024 * 1024 * 1024, 1024L * 1024 * 1024,
                 512L * 1024 * 1024);
         assertEquals(StorageGuard.Verdict.OK, c.verdict);
@@ -105,6 +119,7 @@ public class CoreKitTest {
 
     @Test
     public void human_isReadable() {
+        Lang.setChinese(true);
         assertEquals("512 B", StorageGuard.human(512));
         assertEquals("1.0 MB", StorageGuard.human(1024L * 1024));
         assertTrue(StorageGuard.human(3L * 1024 * 1024 * 1024).endsWith("GB"));
@@ -113,6 +128,7 @@ public class CoreKitTest {
 
     @Test
     public void audit_findsGhostOrphanAndEmpty() {
+        Lang.setChinese(true);
         List<StorageGuard.Entry> entries = Arrays.asList(
                 new StorageGuard.Entry("/m/a.gguf", 100),
                 new StorageGuard.Entry("/m/ghost.gguf", 200),
@@ -214,6 +230,7 @@ public class CoreKitTest {
 
     @Test
     public void toolSection_compactKeepsNamesOnly() {
+        Lang.setChinese(true);
         String list = "shell(命令) —— 在手机真终端执行\ntime(空) —— 取当前时间\n";
         String compact = PromptTemplate.toolSection(list, true);
         assertTrue(compact.contains("shell(命令)"));
@@ -226,6 +243,7 @@ public class CoreKitTest {
 
     @Test
     public void compose_includesMemoryAndDedups() {
+        Lang.setChinese(true);
         String out = PromptTemplate.compose("", PromptTemplate.Preset.AGENT, null,
                 Arrays.asList("回答用中文", "  ", null));
         assertTrue(out.contains(PromptTemplate.body(PromptTemplate.Preset.AGENT)));
@@ -246,6 +264,7 @@ public class CoreKitTest {
 
     @Test
     public void compose_userPromptOverridesPreset() {
+        Lang.setChinese(true);
         String out = PromptTemplate.compose("我是自定义的", PromptTemplate.Preset.AGENT, null, null);
         assertTrue(out.startsWith("我是自定义的"));
         assertFalse(out.contains("可以调用工具在本机上完成实际任务"));
@@ -277,6 +296,7 @@ public class CoreKitTest {
 
     @Test
     public void readText_truncatesHugeFile() throws IOException {
+        Lang.setChinese(true);
         File dir = Files.createTempDirectory("big").toFile();
         File f = new File(dir, "big.txt");
         StringBuilder sb = new StringBuilder();
@@ -410,6 +430,7 @@ public class CoreKitTest {
 
     @Test
     public void perfStats_detectsDegradation() {
+        Lang.setChinese(true);
         PerfStats st = new PerfStats(8);
         for (int i = 0; i < 4; i++) st.add(new PerfStats.Sample(50, 300, 20, i));
         assertFalse(st.degraded());

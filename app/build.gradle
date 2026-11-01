@@ -82,7 +82,9 @@ android {
         abortOnError true
         checkReleaseBuilds true
         // 这些检查对本项目意义不大/误报多，关掉以免阻断构建
-        disable 'GoogleAppIndexingWarning', 'MissingTranslation'
+        disable 'GoogleAppIndexingWarning'
+        // 双语是硬要求：values（英文）与 values-zh 必须逐条对齐，
+        // MissingTranslation 堵漏译、ExtraTranslation 堵多余项，两个都不能关。
     }
 
     testOptions {

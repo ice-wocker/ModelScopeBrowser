@@ -12,6 +12,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import com.mscope.browser.i18n.Lang;
+
 import java.util.Locale;
 
 /**
@@ -80,10 +82,12 @@ public class Workspace {
             String base = root.getCanonicalPath();
             String path = f.getCanonicalPath();
             if (!path.equals(base) && !path.startsWith(base + File.separator)) {
-                throw new IllegalArgumentException("路径越出工作区：" + rel);
+                throw new IllegalArgumentException(Lang.zh()
+                    ? "路径越出工作区：" + rel : "path escapes the workspace: " + rel);
             }
         } catch (IOException e) {
-            throw new IllegalArgumentException("路径不合法：" + rel);
+            throw new IllegalArgumentException(Lang.zh()
+                    ? "路径不合法：" + rel : "invalid path: " + rel);
         }
         return f;
     }
@@ -149,14 +153,16 @@ public class Workspace {
 
     public String readText(String rel) throws IOException {
         File f = resolve(rel);
-        if (!f.exists()) throw new IOException("文件不存在：" + rel);
-        if (f.isDirectory()) throw new IOException("这是一个目录：" + rel);
+        if (!f.exists()) throw new IOException(Lang.zh() ? "文件不存在：" + rel : "file not found: " + rel);
+        if (f.isDirectory()) throw new IOException(Lang.zh() ? "这是一个目录：" + rel : "this is a directory: " + rel);
         try (InputStream in = new FileInputStream(f)) {
             // 先按 length() 申请，但真正读到多少算多少：文件可能在检查后被写大，
             // 直接 new byte[(int) length()] 遇到并发写入会读到半截或抛出 ArrayIndexOutOfBounds。
             final long len = f.length();
             if (len > READ_LIMIT) {
-                throw new IOException("文件过大（" + len + " 字节），仅支持读取 512KB 以内的文本");
+                throw new IOException(Lang.zh()
+                    ? "文件过大（" + len + " 字节），仅支持读取 512KB 以内的文本"
+                    : "file too large (" + len + " bytes); only text up to 512KB can be read");
             }
             byte[] buf = new byte[(int) Math.max(16, len)];
             int n = 0, r;
@@ -168,11 +174,13 @@ public class Workspace {
     /** 覆盖写入（自动建父目录，原子落盘）。 */
     public File writeText(String rel, String content) throws IOException {
         File f = resolve(rel);
-        if (f.isDirectory()) throw new IOException("目标是一个目录：" + rel);
+        if (f.isDirectory()) throw new IOException(Lang.zh()
+                ? "目标是一个目录：" + rel : "target is a directory: " + rel);
         File parent = f.getParentFile();
-        if (parent == null) throw new IOException("路径不合法：" + rel);
+        if (parent == null) throw new IOException(Lang.zh()
+                ? "路径不合法：" + rel : "invalid path: " + rel);
         if (!parent.exists() && !parent.mkdirs()) {
-            throw new IOException("无法创建目录：" + rel);
+            throw new IOException(Lang.zh() ? "无法创建目录：" + rel : "cannot create directory: " + rel);
         }
         byte[] bytes = (content == null ? "" : content).getBytes(StandardCharsets.UTF_8);
         File tmp = new File(parent, f.getName() + ".tmp");
@@ -194,7 +202,7 @@ public class Workspace {
         File f = resolve(rel);
         File parent = f.getParentFile();
         if (parent != null && !parent.exists() && !parent.mkdirs()) {
-            throw new IOException("无法创建目录：" + rel);
+            throw new IOException(Lang.zh() ? "无法创建目录：" + rel : "cannot create directory: " + rel);
         }
         try (OutputStream out = new FileOutputStream(f, true)) {
             out.write((content == null ? "" : content).getBytes(StandardCharsets.UTF_8));
@@ -218,7 +226,8 @@ public class Workspace {
 
     public File mkdir(String rel) throws IOException {
         File f = resolve(rel);
-        if (!f.exists() && !f.mkdirs()) throw new IOException("无法创建目录：" + rel);
+        if (!f.exists() && !f.mkdirs()) throw new IOException(Lang.zh()
+                ? "无法创建目录：" + rel : "cannot create directory: " + rel);
         return f;
     }
 

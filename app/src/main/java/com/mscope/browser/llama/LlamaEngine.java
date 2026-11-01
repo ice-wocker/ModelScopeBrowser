@@ -4,6 +4,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 
+import com.mscope.browser.i18n.Lang;
 import com.mscope.browser.local.LocalModel;
 
 import java.io.FileInputStream;
@@ -199,7 +200,9 @@ public class LlamaEngine {
         if (loading) {
             // 直接返回会让调用方一直停在“加载中”，这里显式告知，便于界面重试
             if (listener != null) {
-                ui.post(() -> listener.onLoaded(false, "已有模型正在加载中，请稍候重试"));
+                ui.post(() -> listener.onLoaded(false, Lang.zh()
+                        ? "已有模型正在加载中，请稍候重试"
+                        : "Another model is already loading, please retry in a moment"));
             }
             return;
         }
@@ -214,7 +217,8 @@ public class LlamaEngine {
                 try {
                     unsupported = LlamaBridge.nativeSupported();
                 } catch (Throwable t) {
-                    unsupported = "本地推理库加载失败：" + t.getMessage();
+                    unsupported = (Lang.zh() ? "本地推理库加载失败：" : "Failed to load the native inference library: ")
+                            + t.getMessage();
                 }
                 if (unsupported != null && !unsupported.isEmpty()) {
                     loading = false;
@@ -239,14 +243,17 @@ public class LlamaEngine {
                 final int batchT = threads[1];
                 ui.post(() -> listener.onLoaded(h != 0,
                         h != 0
+                                ? (Lang.zh()
                                 ? "已加载：" + model.displayName() + "（" + decodeT + "/" + batchT + " 线程）"
+                                : "Loaded: " + model.displayName() + " (" + decodeT + "/" + batchT + " threads)")
                                 : loadFailureMessage()));
             } catch (Throwable t) {
                 Log.e(TAG, "加载异常", t);
                 loading = false;
                 handle = 0;
                 current = null;
-                ui.post(() -> listener.onLoaded(false, "加载异常：" + t.getMessage()));
+                ui.post(() -> listener.onLoaded(false,
+                        (Lang.zh() ? "加载异常：" : "Load failed: ") + t.getMessage()));
             }
         });
     }
@@ -263,7 +270,9 @@ public class LlamaEngine {
             if (e != null && !e.trim().isEmpty()) return e.trim();
         } catch (Throwable ignored) {
         }
-        return "模型加载失败（文件可能不完整或格式不受支持）";
+        return Lang.zh()
+                ? "模型加载失败（文件可能不完整或格式不受支持）"
+                : "Model failed to load (the file may be incomplete or in an unsupported format)";
     }
 
     private void closeHandle() {
@@ -312,12 +321,12 @@ public class LlamaEngine {
     public void generate(List<ChatMessage> messages, Params params, StreamListener listener) {
         final long h = handle;
         if (h == 0) {
-            listener.onError("尚未加载模型");
+            listener.onError(Lang.zh() ? "尚未加载模型" : "No model loaded yet");
             return;
         }
         synchronized (this) {
             if (generating) {
-                listener.onError("正在生成中");
+                listener.onError(Lang.zh() ? "正在生成中" : "Already generating");
                 return;
             }
             generating = true;
@@ -437,7 +446,7 @@ public class LlamaEngine {
         try {
             return LlamaBridge.nativeVersion();
         } catch (Throwable t) {
-            return "llama.cpp (未加载)";
+            return Lang.zh() ? "llama.cpp (未加载)" : "llama.cpp (not loaded)";
         }
     }
 }

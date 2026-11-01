@@ -14,7 +14,6 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
-import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.FileProvider;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -31,12 +30,13 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import com.mscope.browser.i18n.BaseActivity;
 
 /**
  * 工作区文件管理：浏览 / 新建 / 预览 / 分享 / 删除。
  * 所有内容都在应用私有工作区内，点 .html 直接进本地预览。
  */
-public class WorkspaceActivity extends AppCompatActivity {
+public class WorkspaceActivity extends BaseActivity {
 
     private Workspace ws;
     private String dir = "";

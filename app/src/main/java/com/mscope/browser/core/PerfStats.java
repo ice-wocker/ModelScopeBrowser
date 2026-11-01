@@ -1,5 +1,7 @@
 package com.mscope.browser.core;
 
+import com.mscope.browser.i18n.Lang;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -123,6 +125,10 @@ public final class PerfStats {
     /** 一句话摘要，直接放状态条。 */
     public synchronized String summary() {
         if (samples.isEmpty()) return "";
+        if (!Lang.zh()) {
+            return String.format(Locale.ROOT, "last %.1f tok/s · mean %.1f · P90 %.1f · first token %d ms",
+                    lastTps(), meanTps(), percentileTps(0.9), meanPrefillMs());
+        }
         return String.format(Locale.ROOT, "本次 %.1f tok/s · 均值 %.1f · P90 %.1f · 首字 %d ms",
                 lastTps(), meanTps(), percentileTps(0.9), meanPrefillMs());
     }
@@ -130,6 +136,9 @@ public final class PerfStats {
     /** 劣化时的建议文案；正常返回空串。 */
     public synchronized String advice() {
         if (!degraded()) return "";
-        return "速度明显低于本次会话的平均水平，可能被后台任务或散热拖慢；关掉后台应用、降一档上下文通常能恢复。";
+        return Lang.zh()
+                ? "速度明显低于本次会话的平均水平，可能被后台任务或散热拖慢；关掉后台应用、降一档上下文通常能恢复。"
+                : "Speed is clearly below this session's average — background work or thermal throttling is "
+                + "likely. Closing background apps or lowering the context size usually restores it.";
     }
 }

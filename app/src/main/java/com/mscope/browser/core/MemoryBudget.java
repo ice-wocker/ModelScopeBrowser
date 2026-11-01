@@ -1,5 +1,7 @@
 package com.mscope.browser.core;
 
+import com.mscope.browser.i18n.Lang;
+
 import java.io.File;
 
 /**
@@ -142,7 +144,21 @@ public final class MemoryBudget {
 
     /** 面向界面的解释文案：为什么是这个值。 */
     public static String explain(Snapshot mem, long modelBytes, int chosenCtx) {
-        if (mem == null || mem.totalKb <= 0) return "读不到设备内存信息，沿用上次设置";
+        return explain(mem, modelBytes, chosenCtx, Lang.zh());
+    }
+
+    public static String explain(Snapshot mem, long modelBytes, int chosenCtx, boolean zh) {
+        if (mem == null || mem.totalKb <= 0) {
+            return zh ? "读不到设备内存信息，沿用上次设置" : "Device memory unavailable, keeping the previous setting";
+        }
+        if (!zh) {
+            return String.format(java.util.Locale.ROOT,
+                    "Device has %d MB RAM, %d MB currently available, model %.1f GB; "
+                            + "suggested context %d tokens (~%d MB extra)",
+                    mem.totalKb / 1024, mem.availableKb / 1024,
+                    modelBytes / 1024d / 1024d / 1024d, chosenCtx,
+                    estimateExtraKb(chosenCtx, true) / 1024);
+        }
         return String.format(java.util.Locale.ROOT,
                 "设备 %d MB 内存，当前可用 %d MB，模型 %.1f GB；建议上下文 %d tokens（约需额外 %d MB）",
                 mem.totalKb / 1024, mem.availableKb / 1024,
