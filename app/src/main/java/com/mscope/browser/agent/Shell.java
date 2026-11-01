@@ -69,7 +69,7 @@ public class Shell {
                         return;
                     }
                 }
-                proc.destroy();
+                kill(proc);
             });
             watchdog.setDaemon(true);
             watchdog.start();
@@ -94,8 +94,29 @@ public class Shell {
             if (truncated) text += "\n…（输出过长，已截断）";
             return new Out(text, code);
         } catch (Exception e) {
-            if (p != null) p.destroy();
+            if (p != null) kill(p);
             return new Out(String.valueOf(e.getMessage()), 1);
+        }
+    }
+
+    /**
+     * 超时收尾：先 destroy（让 sh 及其子进程收到 SIGTERM），再在宽限期内等它自己退出。
+     * 只 destroy 不等待时，退出码可能还没落地，waitFor 又会继续轮询到自己的截止时间，
+     * 白白把「已超时」的命令再拖上几秒。
+     */
+    private static void kill(Process p) {
+        try {
+            p.destroy();
+        } catch (Throwable ignored) {
+        }
+        final long until = System.currentTimeMillis() + 200;
+        while (System.currentTimeMillis() < until && isAlive(p)) {
+            try {
+                Thread.sleep(20);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
         }
     }
 
@@ -117,14 +138,14 @@ public class Shell {
                 return p.exitValue();
             } catch (IllegalThreadStateException e) {
                 if (System.currentTimeMillis() > deadline) {
-                    p.destroy();
+                    kill(p);
                     return -1;
                 }
                 try {
                     Thread.sleep(50);
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
-                    p.destroy();
+                    kill(p);
                     return -1;
                 }
             }

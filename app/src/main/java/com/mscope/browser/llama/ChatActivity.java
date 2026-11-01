@@ -518,6 +518,7 @@ public class ChatActivity extends AppCompatActivity {
     private void runAgent(final int continueFrom) {
         final List<ChatMessage> ctx = buildBaseContext();
         int reuse = continueFrom;
+        boolean cancelledMidRound = false;
 
         for (int round = 0; round < MAX_ROUNDS; round++) {
             if (turnCancelled || !alive) break;
@@ -527,6 +528,7 @@ public class ChatActivity extends AppCompatActivity {
             Gen gen = generateBlocking(ctx, reuse);
             reuse = -1;
             if (gen == null) break;                       // 出错或被取消
+            if (gen.cancelled) cancelledMidRound = true;   // 用户按了停止：做完收尾就退出，别再继续生成
 
             final List<ToolCall> calls = agentMode
                     ? ToolCall.parse(gen.text, AgentTools.names())
@@ -536,10 +538,13 @@ public class ChatActivity extends AppCompatActivity {
                     ? ToolCall.strip(gen.text, AgentTools.names())
                     : gen.text).trim();
             final boolean last = calls.isEmpty();
+            final boolean hasPrefix = !TextUtils.isEmpty(gen.prefix);
             // 整轮只有工具调用时删掉空气泡；但「继续生成」已有内容的气泡要保留
-            final String shown = (last && visible.isEmpty())
-                    ? getString(R.string.chat_empty_reply) : visible;
-            applyAssistantText(gen.index, gen.prefix + shown, last || !gen.prefix.isEmpty());
+            final String shown;
+            if (last && visible.isEmpty() && !hasPrefix) shown = getString(R.string.chat_empty_reply);
+            else if (last && visible.isEmpty()) shown = gen.prefix;         // 续写没产出：别把原文覆盖成空
+            else shown = gen.prefix + visible;
+            applyAssistantText(gen.index, shown, last || hasPrefix);
 
             if (last) {                                    // 没有工具调用：这就是最终答案
                 if (!TextUtils.isEmpty(visible)) {
@@ -552,17 +557,23 @@ public class ChatActivity extends AppCompatActivity {
             // 模型这轮的原始输出（含调用）留在上下文里，它才知道自己刚才要干什么
             ctx.add(new ChatMessage(ChatMessage.ASSISTANT, gen.text));
             for (ToolCall c : calls) {
-                if (turnCancelled || !alive) break;
+                if (stoppedBy(gen)) break;
                 final int card = addToolCard(c);
+                if (card < 0) break;                       // 界面已销毁
                 boolean ok = true;
                 if (AgentTools.risky(c.name) && !allowAllWrites) ok = confirmTool(c);
-                final String result = ok ? agentTools.exec(c) : getString(R.string.agent_denied);
+                // 确认期间用户可能按了停止：这里再拦一次，避免「点了停止却仍在执行命令」。
+                if (ok && stoppedBy(gen)) ok = false;
+                final String result = ok
+                        ? agentTools.exec(c)
+                        : (stoppedBy(gen) ? getString(R.string.agent_cancelled)
+                                          : getString(R.string.agent_denied));
                 updateToolCard(card, result);
                 ctx.add(new ChatMessage(ChatMessage.USER, toolResultText(result)));
             }
         }
 
-        if (agentStep >= MAX_ROUNDS && !turnCancelled) {
+        if (agentStep >= MAX_ROUNDS && !turnCancelled && !cancelledMidRound) {
             uiSync(() -> addTool(getString(R.string.chat_tool_info), "info",
                     getString(R.string.agent_max_rounds, MAX_ROUNDS)));
         }
@@ -577,6 +588,17 @@ public class ChatActivity extends AppCompatActivity {
         for (ChatMessage m : messages) {
             if (m.isTool()) continue;
             if (TextUtils.isEmpty(m.content)) continue;
+            if (m.isAssistant()) {
+                // 历史里的助手消息 = 上一轮已经「用过的」输出。工具调用片段与思考内容
+                // 再喂回去只会诱导模型重复调用同一个工具；思考块更是纯噪声。
+                String clean = agentMode
+                        ? ToolCall.strip(ToolCall.stripThinking(m.content), AgentTools.names())
+                        : ToolCall.stripThinking(m.content);
+                clean = clean.trim();
+                if (clean.isEmpty()) continue;
+                req.add(new ChatMessage(ChatMessage.ASSISTANT, clean));
+                continue;
+            }
             req.add(m);
         }
         return req;
@@ -612,24 +634,37 @@ public class ChatActivity extends AppCompatActivity {
         final String text;
         final int index;
         final String prefix;
+        /** 这一轮是被用户「停止」打断的（而不是正常结束）。 */
+        final boolean cancelled;
 
-        Gen(String text, int index, String prefix) {
+        Gen(String text, int index, String prefix, boolean cancelled) {
             this.text = text;
             this.index = index;
             this.prefix = prefix;
+            this.cancelled = cancelled;
         }
     }
 
-    /** 生成一轮并阻塞等待完成；返回 null 表示失败或已取消。 */
+    /** 这一轮是否已经被用户打断：循环里每个安全点都用它检查，避免「按了停止还在跑工具」。 */
+    private boolean stoppedBy(Gen gen) {
+        return gen.cancelled || turnCancelled;
+    }
+
+    /** 生成一轮并阻塞等待完成；返回 null 表示失败。 */
     private Gen generateBlocking(final List<ChatMessage> ctx, final int reuseIndex) {
         final int[] idx = {-1};
         final String[] pre = {""};
+        final boolean[] reused = {false};
         uiSync(() -> {
             if (reuseIndex >= 0 && reuseIndex < messages.size()
                     && messages.get(reuseIndex).isAssistant()) {
                 idx[0] = reuseIndex;                       // 继续生成：复用同一条气泡
+                reused[0] = true;
                 ChatMessage m = messages.get(reuseIndex);
                 pre[0] = m.content == null ? "" : m.content;
+                // 续写时上下文里必须带上「已经写出来的部分」，否则模型不知道从哪接：
+                // 它会重新写一遍开头，而界面上的气泡已经有一段内容，两段叠在一起就是重复。
+                ctx.add(new ChatMessage(ChatMessage.ASSISTANT, pre[0]));
             } else {
                 idx[0] = messages.size();
                 messages.add(new ChatMessage(ChatMessage.ASSISTANT, ""));
@@ -639,7 +674,7 @@ public class ChatActivity extends AppCompatActivity {
             }
         });
         final int aiIndex = idx[0];
-        final String prefix = pre[0];
+        final String prefix = reused[0] ? pre[0] : "";
 
         final CountDownLatch latch = new CountDownLatch(1);
         final String[] out = {null};
@@ -684,8 +719,9 @@ public class ChatActivity extends AppCompatActivity {
             Thread.currentThread().interrupt();
             return null;
         }
-        if (failed[0] || !alive) return null;
-        return new Gen(out[0], aiIndex, prefix);
+        if (failed[0] || !alive || aiIndex < 0) return null;
+        // 续写时气泡里已经有 prefix，不能再拼一次；新气泡则是从空开始。
+        return new Gen(out[0], aiIndex, prefix, turnCancelled);
     }
 
     /**
@@ -719,6 +755,7 @@ public class ChatActivity extends AppCompatActivity {
 
     private int addToolCard(final ToolCall c) {
         final int[] index = {-1};
+        if (!alive) return -1;
         uiSync(() -> {
             messages.add(ChatMessage.tool(toolTitle(c.name), toolKind(c.name),
                     getString(R.string.agent_running)));
@@ -1439,7 +1476,10 @@ public class ChatActivity extends AppCompatActivity {
                 bindAi((AiVH) h, m, position);
             }
             h.itemView.setOnLongClickListener(v -> {
-                showMessageMenu(position);
+                // 不能直接用绑定时的 position：流式生成期间列表会不断插入/删除，
+                // 长按发生时这一行可能早已不是当初绑定的那条消息（「删除本条」就会删错）。
+                int at = h.getBindingAdapterPosition();
+                if (at != RecyclerView.NO_POSITION) showMessageMenu(at);
                 return true;
             });
         }
@@ -1452,15 +1492,23 @@ public class ChatActivity extends AppCompatActivity {
                 a.stat.setVisibility(View.VISIBLE);
                 a.stat.setText(st);
             }
-            // 流式过程中用纯文本，避免每个 token 都重新解析 Markdown
+            // 流式过程中用纯文本，避免每个 token 都重新解析 Markdown；
+            // 但依然要剥掉思考块与工具调用标签——否则用户会看到满屏 <function name=...> 原文，
+            // 而这几行随后会被「只显示正文」的结果替换掉，看起来像回答被吞了。
             boolean streaming = generating && position == messages.size() - 1;
             if (streaming) {
-                a.bubble.setText(TextUtils.isEmpty(m.content)
-                        ? getString(R.string.chat_thinking) : m.content);
+                String live = agentMode
+                        ? ToolCall.stripThinking(ToolCall.strip(m.content, AgentTools.names()))
+                        : ToolCall.stripThinking(m.content);
+                live = live.trim();
+                a.bubble.setText(TextUtils.isEmpty(live)
+                        ? getString(R.string.chat_thinking) : live);
             } else if (TextUtils.isEmpty(m.content)) {
                 a.bubble.setText("");
             } else {
-                markwon.setMarkdown(a.bubble, m.content);
+                // 历史消息里可能残留思考块（老版本存下来的），渲染前统一剥掉
+                String body = ToolCall.stripThinking(m.content).trim();
+                markwon.setMarkdown(a.bubble, body.isEmpty() ? m.content : body);
             }
         }
 

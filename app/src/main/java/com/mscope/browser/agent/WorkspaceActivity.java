@@ -100,15 +100,12 @@ public class WorkspaceActivity extends AppCompatActivity {
         entries.addAll(ws.list(dir));
         adapter.notifyDataSetChanged();
 
-        tvPath.setText(dir.isEmpty() ? getString(R.string.workspace_root) : "/" + dir);
-        tvUsage.setText(getString(R.string.workspace_usage, countFiles(), Format.size(ws.totalSize())));
-        empty.setVisibility(entries.isEmpty() ? View.VISIBLE : View.GONE);
-    }
+        int files = 0;
+        for (Workspace.Entry e : entries) if (!e.dir) files++;
 
-    private int countFiles() {
-        int n = 0;
-        for (Workspace.Entry e : ws.list(dir)) if (!e.dir) n++;
-        return n;
+        tvPath.setText(dir.isEmpty() ? getString(R.string.workspace_root) : "/" + dir);
+        tvUsage.setText(getString(R.string.workspace_usage, files, Format.size(ws.totalSize())));
+        empty.setVisibility(entries.isEmpty() ? View.VISIBLE : View.GONE);
     }
 
     /* ------------------------------------------------------------------ 操作 */
@@ -159,7 +156,7 @@ public class WorkspaceActivity extends AppCompatActivity {
     }
 
     private static String mime(String name) {
-        String n = name.toLowerCase();
+        String n = name.toLowerCase(Locale.ROOT);
         if (n.endsWith(".html") || n.endsWith(".htm")) return "text/html";
         if (n.endsWith(".json")) return "application/json";
         if (n.endsWith(".txt") || n.endsWith(".md") || n.endsWith(".log")) return "text/plain";

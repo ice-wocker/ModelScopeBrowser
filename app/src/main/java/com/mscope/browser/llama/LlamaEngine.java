@@ -188,8 +188,14 @@ public class LlamaEngine {
 
     /* ------------------------------------------------------------- 模型生命周期 */
 
-    /** 加载模型（会先卸载当前模型）。nCtx 为上下文窗口，backendDir 为应用 native 库目录。 */
-    public void load(LocalModel model, int nCtx, String backendDir, LoadListener listener) {
+    /**
+     * 加载模型（会先卸载当前模型）。nCtx 为上下文窗口，backendDir 为应用 native 库目录。
+     *
+     * <p>loading 的「检查 + 置位」必须原子完成：界面上「切换模型 → 取消 → 再确认」这类操作
+     * 可能连着触发两次 load，两个都读到 false 就会各自往单线程里排一个任务，
+     * 结果是后一个任务把前一个刚建好的会话立刻 closeHandle 掉，界面却显示「已加载」。</p>
+     */
+    public synchronized void load(LocalModel model, int nCtx, String backendDir, LoadListener listener) {
         if (loading) {
             // 直接返回会让调用方一直停在“加载中”，这里显式告知，便于界面重试
             if (listener != null) {
@@ -249,6 +255,7 @@ public class LlamaEngine {
         worker.execute(this::closeHandle);
     }
 
+
     /** 取原生的具体失败原因；取不到时退回通用文案。 */
     private static String loadFailureMessage() {
         try {
@@ -295,18 +302,26 @@ public class LlamaEngine {
 
     /* --------------------------------------------------------------- 生成 */
 
-    /** 流式生成。messages 需包含 system（可选）与历史消息，最后一条为用户输入。 */
+    /**
+     * 流式生成。messages 需包含 system（可选）与历史消息，最后一条为用户输入。
+     *
+     * <p>generating 的检查与置位放在 synchronized 里：两个线程同时发请求时，
+     * 各自读到 false 就会一起把任务排进单线程队列，第二个请求白等一轮还会覆盖句柄状态。
+     * 注意这里不是把整个生成过程上锁——生成仍在 worker 线程里跑。</p>
+     */
     public void generate(List<ChatMessage> messages, Params params, StreamListener listener) {
         final long h = handle;
         if (h == 0) {
             listener.onError("尚未加载模型");
             return;
         }
-        if (generating) {
-            listener.onError("正在生成中");
-            return;
+        synchronized (this) {
+            if (generating) {
+                listener.onError("正在生成中");
+                return;
+            }
+            generating = true;
         }
-        generating = true;
 
         final List<ChatMessage> input = new ArrayList<>(messages);
         final Params p = params == null ? new Params() : params;
@@ -386,11 +401,10 @@ public class LlamaEngine {
         if (estimateTokens(h, work) <= budget) return work;
 
         while (work.size() > 1) {
-            int idx = -1;
-            for (int i = 0; i < work.size() - 1; i++) {        // 保留最后一条（本轮用户输入）
-                if (!ChatMessage.SYSTEM.equals(work.get(i).role)) { idx = i; break; }
-            }
-            if (idx < 0) break;
+            // 从最早的一条开始丢，最后一条（本轮用户输入）永远保留。
+            // 注意不要跳过 system：它在最前面，跳过后如果视图里只有 system + 用户消息，
+            // 循环就一次都裁不掉，只能靠原生层截断，前缀复用全废。
+            final int idx = 0;                              // 最早的一条
             final boolean wasUser = ChatMessage.USER.equals(work.get(idx).role);
             work.remove(idx);
             // 用户消息与其回复成对丢弃，避免留下孤立回答

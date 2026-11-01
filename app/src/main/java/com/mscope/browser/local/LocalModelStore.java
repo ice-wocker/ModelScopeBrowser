@@ -53,7 +53,14 @@ public class LocalModelStore {
             m.size = o.optLong("size", 0);
             m.addedAt = o.optLong("addedAt", 0);
             File f = new File(m.localPath);
-            if (f.exists() && f.length() > 0) out.add(m);   // 顺手清理已被外部删除的记录
+            // 顺手清理已被外部删除的记录，并顺手去重：同一个文件被重复登记（旧版本多线程下
+            // 可能写出两条）会让本地模型列表出现两个一模一样的条目。
+            if (!f.exists() || f.length() <= 0) continue;
+            boolean dup = false;
+            for (int j = out.size() - 1; j >= 0; j--) {
+                if (out.get(j).localPath.equals(m.localPath)) { dup = true; break; }
+            }
+            if (!dup) out.add(m);
         }
         if (out.size() != arr.length()) writeIndex(out);
         return out;
@@ -74,9 +81,12 @@ public class LocalModelStore {
 
     public synchronized void remove(LocalModel m) {
         File f = new File(m.localPath);
-        if (f.exists()) {
-            //noinspection ResultOfMethodCallIgnored
-            f.delete();
+        if (!f.exists()) {
+            // 文件已经不在（用户清理过），但索引里可能还留着：不能因为「文件不存在」就跳过删索引，
+            // 否则列表里会永远挂着一个点不动的幽灵模型。
+            Log.w(TAG, "待删除的模型文件已不存在: " + m.localPath);
+        } else if (!f.delete()) {
+            Log.w(TAG, "删除模型文件失败: " + m.localPath);
         }
         List<LocalModel> all = list();
         for (int i = all.size() - 1; i >= 0; i--) {

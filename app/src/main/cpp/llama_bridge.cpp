@@ -68,6 +68,20 @@ private:
     std::string buf_;
 };
 
+/**
+ * 把一段「完整 UTF-8 字节序列」整体转成 UTF-16。
+ * 原生层返回给 Java 的文本必须走这里：直接按字节加宽（std::u16string(s.begin(), s.end())）
+ * 会把中文/emoji 的每个字节都变成独立码元，中文会变成一串乱码，BMP 外的字符还会被 JNI 拒绝。
+ */
+std::u16string toU16(const std::string &s) {
+    std::u16string out;
+    out.reserve(s.size());
+    Utf8Stream stream;
+    stream.feed(s.data(), s.size(), out);
+    stream.flush(out);
+    return out;
+}
+
 std::string toStd(JNIEnv *env, jstring s) {
     if (s == nullptr) return {};
     const char *c = env->GetStringUTFChars(s, nullptr);
@@ -109,6 +123,9 @@ struct Session {
 
     std::atomic<bool>  cancel{false};
     std::mutex         mu;
+    /// 引用计数：nativeFree 只把会话从 g_sessions 摘掉并 release，最后一个持有者才真正销毁。
+    /// 这样「生成线程正在用」时另一个线程调 nativeFree 也不会 use-after-free。
+    std::atomic<int>   refs{1};
 };
 
 /// 存活会话表。nativeFree 会 delete 会话，而 nativeCancel 可能从别的线程并发调用；
@@ -116,23 +133,40 @@ struct Session {
 std::mutex              g_mu;
 std::unordered_set<Session *> g_sessions;
 
+/// 释放一次引用；归零时销毁会话。所有持有者都必须走这里，避免二次释放。
+void releaseSession(Session *s) {
+    if (s == nullptr) return;
+    if (s->refs.fetch_sub(1) != 1) return;
+    {
+        std::lock_guard<std::mutex> lock(s->mu);
+        if (s->batch.token != nullptr) llama_batch_free(s->batch);
+        if (s->ctx != nullptr) llama_free(s->ctx);
+        if (s->model != nullptr) llama_model_free(s->model);
+        s->batch.token = nullptr;
+        s->ctx = nullptr;
+        s->model = nullptr;
+    }
+    delete s;
+}
+
 /// 应用私有 native 库目录。多档指令集后端是独立 .so，必须从这里显式加载。
 std::string g_backend_dir;
 
 /// 最近一次加载失败的原因，供上层展示（否则所有失败都只能显示一句笼统提示）。
 std::string g_last_error;
 
-/// 取出句柄对应的会话并加锁；句柄已失效时返回 nullptr（此时不会解引用）。
+/// 取出句柄对应的会话并加锁（同时持有一份引用，调用方必须调 releaseSession）；
+/// 句柄已失效时返回 nullptr（此时不会解引用，也不会加引用）。
+///
+/// g_mu 一直持有到 s->mu 拿到为止：否则「取到指针 → 释放 g_mu → 抢 s->mu」的间隙里，
+/// 另一个线程可能已经 nativeFree 掉这个会话，再去 lock 就是操作已释放内存。
 Session *acquire(jlong handle, std::unique_lock<std::mutex> &lock) {
     auto *s = reinterpret_cast<Session *>(handle);
     if (s == nullptr) return nullptr;
-    g_mu.lock();
-    if (g_sessions.count(s) == 0) {
-        g_mu.unlock();
-        return nullptr;
-    }
+    std::lock_guard<std::mutex> guard(g_mu);
+    if (g_sessions.count(s) == 0) return nullptr;
+    s->refs.fetch_add(1);
     lock = std::unique_lock<std::mutex>(s->mu);
-    g_mu.unlock();
     return s;
 }
 
@@ -372,11 +406,10 @@ Java_com_mscope_browser_llama_LlamaBridge_nativeFree(JNIEnv *, jclass, jlong han
         std::lock_guard<std::mutex> lock(g_mu);
         if (g_sessions.erase(s) == 0) return;   // 已释放或非法句柄，避免二次释放
     }
-    std::lock_guard<std::mutex> lock(s->mu);
-    llama_batch_free(s->batch);
-    if (s->ctx)   llama_free(s->ctx);
-    if (s->model) llama_model_free(s->model);
-    delete s;
+    // 不在这里销毁：可能还有其它线程正持着引用（例如正在 nativeGenerate 里）。
+    // 先摇取消标志让生成尽快退出，再放掉自己那一份引用。
+    s->cancel = true;
+    releaseSession(s);
 }
 
 JNIEXPORT void JNICALL
@@ -392,7 +425,7 @@ JNIEXPORT void JNICALL
 Java_com_mscope_browser_llama_LlamaBridge_nativeCancel(JNIEnv *, jclass, jlong handle) {
     auto *s = reinterpret_cast<Session *>(handle);
     if (s == nullptr) return;
-    // 只置原子标志即可，无需 s->mu；但要先确认会话仍存活，否则会写已释放内存
+    // 只置原子标志即可，无需 s->mu；但要先确认会话仍存活，否则会写已释放内存。
     std::lock_guard<std::mutex> lock(g_mu);
     if (g_sessions.count(s) != 0) s->cancel = true;
 }
@@ -401,7 +434,11 @@ JNIEXPORT jint JNICALL
 Java_com_mscope_browser_llama_LlamaBridge_nativeContextSize(JNIEnv *, jclass, jlong handle) {
     std::unique_lock<std::mutex> lock;
     Session *s = acquire(handle, lock);
-    return s == nullptr ? 0 : s->n_ctx;
+    if (s == nullptr) return 0;
+    const jint n = s->n_ctx;
+    lock.unlock();
+    releaseSession(s);
+    return n;
 }
 
 /** 只用来看看当前 KV 里缓存了多少 token（供界面/调优参考）。 */
@@ -409,7 +446,11 @@ JNIEXPORT jint JNICALL
 Java_com_mscope_browser_llama_LlamaBridge_nativeCachedTokens(JNIEnv *, jclass, jlong handle) {
     std::unique_lock<std::mutex> lock;
     Session *s = acquire(handle, lock);
-    return s == nullptr ? 0 : static_cast<jint>(s->kv.size());
+    if (s == nullptr) return 0;
+    const jint n = static_cast<jint>(s->kv.size());
+    lock.unlock();
+    releaseSession(s);
+    return n;
 }
 
 /** 统计一段文本的分词长度，供上层做「消息级裁剪」估算。 */
@@ -420,9 +461,13 @@ Java_com_mscope_browser_llama_LlamaBridge_nativeCountTokens(
     Session *s = acquire(handle, lock);
     if (s == nullptr) return 0;
     const std::string text = toStd(env, jText);
-    if (text.empty()) return 0;
-    const int32_t n = -llama_tokenize(s->vocab, text.c_str(), static_cast<int32_t>(text.size()),
-                                      nullptr, 0, false, true);
+    int32_t n = 0;
+    if (!text.empty()) {
+        n = -llama_tokenize(s->vocab, text.c_str(), static_cast<int32_t>(text.size()),
+                            nullptr, 0, false, true);
+    }
+    lock.unlock();
+    releaseSession(s);
     return n > 0 ? static_cast<jint>(n) : 0;
 }
 
@@ -433,7 +478,9 @@ Java_com_mscope_browser_llama_LlamaBridge_nativeBuildPrompt(
     Session *s = acquire(handle, lock);
     if (s == nullptr) return env->NewStringUTF("");
     const std::string prompt = buildPrompt(s, env, jRoles, jContents, nullptr);
-    return toJString(env, std::u16string(prompt.begin(), prompt.end()));
+    lock.unlock();
+    releaseSession(s);
+    return toJString(env, toU16(prompt));
 }
 
 /**
@@ -446,7 +493,19 @@ Java_com_mscope_browser_llama_LlamaBridge_nativeGenerate(
         jint maxTokens, jfloat temp, jfloat topP, jint topK, jint seed, jobject callback) {
     std::unique_lock<std::mutex> lock;
     Session *s = acquire(handle, lock);
-    if (s == nullptr || s->ctx == nullptr) return env->NewStringUTF("");
+    if (s == nullptr || s->ctx == nullptr) {
+        if (s != nullptr) {
+            lock.unlock();
+            releaseSession(s);
+        }
+        return env->NewStringUTF("");
+    }
+    // 统一出口：无论从哪条分支返回，都要放掉本函数持有的引用（会话可能已被 nativeFree 摘掉）。
+    auto finish = [&](const std::u16string &text) -> jstring {
+        lock.unlock();
+        releaseSession(s);
+        return toJString(env, text);
+    };
     s->cancel = false;
 
     // ---- 1. 对话模板 + 分词 ----
@@ -454,53 +513,63 @@ Java_com_mscope_browser_llama_LlamaBridge_nativeGenerate(
     const std::string prompt = buildPrompt(s, env, jRoles, jContents, &tokens);
     if (tokens.empty()) {
         LOGE("分词失败");
-        return env->NewStringUTF("");
+        return finish(u"");
     }
     (void) prompt;
 
-    // ---- 2. 上下文长度保护：超出时丢弃最早的历史 ----
-    const int32_t nCtx    = s->n_ctx;
-    int32_t maxNew        = maxTokens > 0 ? maxTokens : 256;
-    int32_t budgetInput   = nCtx - maxNew - 8;
+    // ---- 2. 上下文长度保护 ----
+    const int32_t nCtx  = s->n_ctx;
+    int32_t maxNew      = maxTokens > 0 ? maxTokens : 256;
+    int32_t budgetInput = nCtx - maxNew - 8;
     if (budgetInput < 64) {
         budgetInput = nCtx / 2;
         maxNew      = nCtx - budgetInput - 8;
         if (maxNew < 16) maxNew = 16;
     }
-    if (static_cast<int32_t>(tokens.size()) > budgetInput) {
-        tokens.erase(tokens.begin(), tokens.end() - budgetInput);
-    }
 
     // ---- 3. KV 前缀复用 ----
+    // 关键点：s->kv[i] 必须真的位于位置 i。上一轮生成结束后 KV 里还留着「上一轮输出」的 token，
+    // 如果直接在这段序列上匹配前缀，命中位置就会整体错位，llama_memory_seq_rm 会删错区间，
+    // 之后 decode 的位置与 KV 实际内容不一致 —— 轻则答非所问，重则采样崩溃。
+    // 所以先用公共前缀的 token 重建一份「按位置对齐」的序列，再做（带位置的）删除。
     int32_t n_common = 0;
     {
         const int32_t nKv = static_cast<int32_t>(s->kv.size());
         const int32_t lim = std::min<int32_t>(static_cast<int32_t>(tokens.size()), nKv);
         while (n_common < lim && s->kv[n_common] == tokens[n_common]) ++n_common;
-        if (n_common > budgetInput) n_common = budgetInput;
 
         // 整个 prompt 都命中时，需要回退一位重新解码，才能拿到用于采样的 logits
-        if (n_common == static_cast<int32_t>(tokens.size()) && n_common > 0) {
-            n_common--;
-        }
+        if (n_common == static_cast<int32_t>(tokens.size()) && n_common > 0) n_common--;
 
         if (n_common < nKv) {
+            std::vector<llama_token> keep(tokens.begin(), tokens.begin() + n_common);
             if (!llama_memory_seq_rm(s->mem, 0, n_common, -1)) {
                 // 部分删除不被支持（循环/混合结构），退回整体清空
                 llama_memory_clear(s->mem, true);
-                n_common = 0;
+                keep.clear();
             }
+            s->kv.swap(keep);
         }
-        s->kv.resize(n_common);
+        n_common = static_cast<int32_t>(s->kv.size());
+    }
+
+    // 超长历史：native 层只保留末尾预算。与上层「按消息裁剪」互为兜底。
+    if (static_cast<int32_t>(tokens.size()) > budgetInput) {
+        tokens.erase(tokens.begin(), tokens.end() - budgetInput);
+        if (n_common > budgetInput) {
+            llama_memory_clear(s->mem, true);
+            s->kv.clear();
+            n_common = 0;
+        }
     }
 
     // ---- 4. 分块预填充：只算新增部分 ----
     for (int32_t i = n_common; i < static_cast<int32_t>(tokens.size()); i += s->n_batch) {
-        if (s->cancel) return env->NewStringUTF("");
+        if (s->cancel) return finish(u"");
         const int32_t to = std::min<int32_t>(i + s->n_batch, static_cast<int32_t>(tokens.size()));
         if (!decodeRange(s, tokens, i, to)) {
             LOGE("预填充 decode 失败");
-            return env->NewStringUTF("");
+            return finish(u"");
         }
     }
     s->kv.assign(tokens.begin(), tokens.end());
@@ -516,13 +585,21 @@ Java_com_mscope_browser_llama_LlamaBridge_nativeGenerate(
                                               : llama_sampler_init_greedy());
 
     // ---- 6. 逐 token 生成并流式回调 ----
-    jclass cbClass = callback ? env->GetObjectClass(callback) : nullptr;
-    jmethodID onToken = cbClass ? env->GetMethodID(cbClass, "onToken", "(Ljava/lang/String;)V") : nullptr;
-
     std::u16string full;
     Utf8Stream stream;
     std::vector<char> piece(512);
     bool aborted = false;
+
+    jclass cbClass = nullptr;
+    jmethodID onToken = nullptr;
+    if (callback != nullptr) {
+        cbClass = env->GetObjectClass(callback);          // GetObjectClass 返回局部引用，必须手工释放
+        onToken = env->GetMethodID(cbClass, "onToken", "(Ljava/lang/String;)V");
+        if (env->ExceptionCheck()) {                       // 方法找不到会挂起异常，先清掉再继续
+            env->ExceptionClear();
+            onToken = nullptr;
+        }
+    }
 
     for (int32_t i = 0; i < maxNew; ++i) {
         if (s->cancel) { aborted = true; break; }
@@ -549,8 +626,11 @@ Java_com_mscope_browser_llama_LlamaBridge_nativeGenerate(
                 jstring js = toJString(env, part);
                 env->CallVoidMethod(callback, onToken, js);
                 env->DeleteLocalRef(js);
-                if (env->ExceptionCheck()) {   // 回调抛异常（如页面已关闭）则终止
+                if (env->ExceptionCheck()) {   // 回调抛异常（如页面已关闭 / 被 R8 改名）则终止
+                    // 每个 token 都检查：否则异常会一直挂起，后续 GetMethodID/CallVoidMethod
+                    // 全被 JNI 直接拒绝，生成看起来「卡住」直到 maxTokens。
                     env->ExceptionClear();
+                    LOGE("onToken 回调抛异常，已终止生成");
                     aborted = true;
                     break;
                 }
@@ -562,9 +642,10 @@ Java_com_mscope_browser_llama_LlamaBridge_nativeGenerate(
     }
     stream.flush(full);
 
-    llama_sampler_free(smpl);
+    llama_sampler_free(smpl);      // 注意：上面所有提前 return 都已改用 finish()，不会漏掉释放
+    if (cbClass != nullptr) env->DeleteLocalRef(cbClass);
     if (aborted) LOGI("生成被取消");
-    return toJString(env, full);
+    return finish(full);
 }
 
 JNIEXPORT jstring JNICALL

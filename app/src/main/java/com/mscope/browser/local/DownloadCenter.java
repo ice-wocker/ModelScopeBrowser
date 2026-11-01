@@ -64,6 +64,8 @@ public class DownloadCenter {
         public volatile boolean finished;
         /** 正在使用的连接，取消时用来立即打断阻塞的 read。 */
         volatile HttpURLConnection conn;
+        /** 创建时刻，用于计算下载速度（仅用于通知文案）。 */
+        final long startedAt = System.currentTimeMillis();
 
         Task(LocalModel m, String url) {
             this.model = m;
@@ -120,11 +122,22 @@ public class DownloadCenter {
         return (t != null && !t.finished) ? t : null;
     }
 
+    /**
+     * 开始下载。返回 false 表示该文件已有任务在跑。
+     *
+     * <p>注意顺序：必须先登记任务再投递到线程池。反过来的话，单线程池可能在上面的
+     * 代码执行<em>之前</em>就跑完了 run() 并调用 finish() → tasks.remove()，
+     * 随后任务又被塞回 tasks，留下一个「永远在下载但什么也没发生」的僵尸任务。</p>
+     */
     public boolean start(LocalModel model, String url) {
-        if (task(model.localPath) != null) return false;
-        Task t = new Task(model, url);
-        tasks.put(model.localPath, t);
-        addPending(t);
+        final Task t = new Task(model, url);
+        if (tasks.putIfAbsent(model.localPath, t) != null) return false;
+        try {
+            addPending(t);
+        } catch (RuntimeException e) {
+            tasks.remove(model.localPath, t);
+            throw e;
+        }
         executor.execute(() -> run(t));
         return true;
     }
@@ -145,16 +158,15 @@ public class DownloadCenter {
     /* ------------------------------------------------------------- 下载主流程 */
 
     private void run(Task t) {
-        if (t.cancelled) {
-            clearPending(t);
-            finish(t, Finish.CANCELLED, null);
-            return;
-        }
-
-        final File part = new File(t.model.localPath + ".part");
+        // 这里刻意不预先判断 t.cancelled：start() 与队列执行之间存在间隙，
+        // 用户在这个间隙里点取消时，若在这里直接 return，就会留下「已取消但永远不结束」的任务。
+        // 取消统一由下面的主流程处理（不会发请求，也不会写文件）。
         final File dst = new File(t.model.localPath);
+        final File part = partFileOf(dst);
         HttpURLConnection conn = null;
         try {
+            if (t.cancelled) throw new CancelledException();
+
             File parent = dst.getParentFile();
             if (parent != null && !parent.exists()) {
                 //noinspection ResultOfMethodCallIgnored
@@ -186,6 +198,20 @@ public class DownloadCenter {
             }
 
             DownloadService.start(ctx, notifText(t), t.percent());
+
+            // 服务端返回的长度不可信（缺少 Content-Length 时是 -1），这里自己兜一层：
+            // 目标体积已知时才检查剩余空间，避免下到一半才因磁盘写满失败。
+            final long knownTotal = t.total;
+            // 这里只要一个粗略的「够不够」判断，不必动用 StorageManager#getAllocatableBytes。
+            @SuppressWarnings({"deprecation", "UsableSpace"})
+            final long usable = dst.getParentFile() == null ? -1 : dst.getParentFile().getUsableSpace();
+            if (knownTotal > 0 && usable > 0) {
+                long need = knownTotal - Math.max(0, t.done) + 8L * 1024 * 1024;
+                if (usable < need) {
+                    throw new IllegalStateException("存储空间不足，还需要 "
+                            + android.text.format.Formatter.formatFileSize(ctx, need));
+                }
+            }
 
             byte[] buf = new byte[256 * 1024];
             long lastNotify = 0;
@@ -295,9 +321,15 @@ public class DownloadCenter {
 
     private String notifText(Task t) {
         int pct = t.percent();
-        return pct >= 0
-                ? ctx.getString(R.string.dl_notif_progress, t.model.displayName(), pct)
-                : t.model.displayName();
+        if (pct < 0) return t.model.displayName();
+        final long secs = Math.max(1, (System.currentTimeMillis() - t.startedAt) / 1000);
+        final String speed = android.text.format.Formatter.formatFileSize(ctx, t.done / secs) + "/s";
+        return ctx.getString(R.string.dl_notif_progress_speed, t.model.displayName(), pct, speed);
+    }
+
+    /** 断点临时文件：与目标同目录、同名前缀，保证重启后还能找回上一次的进度。 */
+    private static File partFileOf(File dst) {
+        return new File(dst.getParentFile(), dst.getName() + ".part");
     }
 
     /** GGUF 文件头固定为 "GGUF"，用它挡掉错误页/HTML 等无效内容。 */
@@ -356,7 +388,7 @@ public class DownloadCenter {
     private void resumePending() {
         for (PendingRec r : readPending()) {
             File dst = new File(r.localPath);
-            File part = new File(r.localPath + ".part");
+            File part = partFileOf(dst);
             if (dst.exists() && dst.length() > 0) continue;      // 已经下好了
             if (!part.exists() || part.length() == 0) continue;  // 没有断点，交给用户重新点下载
             LocalModel m = new LocalModel();
