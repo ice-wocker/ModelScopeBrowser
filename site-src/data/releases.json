@@ -1,0 +1,79 @@
+{
+  "_note": "由 scripts/fetch_releases.py 从 GitHub API 生成，请勿手改。构建时只读本文件，不联网。",
+  "generated_at": "2026-11-01T13:42:23Z",
+  "owner": "ice-wocker",
+  "releases": {
+    "KayaGo": {
+      "asset": "KayaGo-1.2.0.apk",
+      "downloads": 88,
+      "name": "KayaGo 1.2.0 · 自对弈进化框架",
+      "published_at": "2026-09-26",
+      "size": 70972,
+      "tag": "v1.2.0",
+      "url": "https://github.com/ice-wocker/KayaGo/releases/download/v1.2.0/KayaGo-1.2.0.apk"
+    },
+    "ModelScopeBrowser": {
+      "asset": "ModelScope-Models-2.7.0.apk",
+      "downloads": 0,
+      "name": "v2.7.0",
+      "published_at": "2026-11-01",
+      "size": 8422081,
+      "tag": "v2.7.0",
+      "url": "https://github.com/ice-wocker/ModelScopeBrowser/releases/download/v2.7.0/ModelScope-Models-2.7.0.apk"
+    },
+    "MusicFusion": {
+      "asset": "musicfusion.apk",
+      "downloads": 80,
+      "name": "v13.0.0 — 聚合音乐播放器（首个 Release）",
+      "published_at": "2026-09-29",
+      "size": 288715,
+      "tag": "v13",
+      "url": "https://github.com/ice-wocker/MusicFusion/releases/download/v13/musicfusion.apk"
+    },
+    "MusicFusionAI": {
+      "asset": "musicfusion-ai.apk",
+      "downloads": 85,
+      "name": "v14.0.0 — Add-on 模块（首个可安装的 APK）",
+      "published_at": "2026-09-29",
+      "size": 41387,
+      "tag": "v14.0.0",
+      "url": "https://github.com/ice-wocker/MusicFusionAI/releases/download/v14.0.0/musicfusion-ai.apk"
+    },
+    "iceBrowser": {
+      "asset": "icebrowser.apk",
+      "downloads": 120,
+      "name": "v5.0.1 — 164 KB 的浏览器",
+      "published_at": "2026-09-29",
+      "size": 168531,
+      "tag": "v5.0.1",
+      "url": "https://github.com/ice-wocker/iceBrowser/releases/download/v5.0.1/icebrowser.apk"
+    },
+    "iceReading": {
+      "asset": "icereading.apk",
+      "downloads": 72,
+      "name": "v1.0.0 — 97 KB 的本地 EPUB 阅读器",
+      "published_at": "2026-09-29",
+      "size": 100085,
+      "tag": "v1.0.0",
+      "url": "https://github.com/ice-wocker/iceReading/releases/download/v1.0.0/icereading.apk"
+    },
+    "iceScan": {
+      "asset": "iceScan-0.1.0.apk",
+      "downloads": 77,
+      "name": "v0.1.0",
+      "published_at": "2026-09-28",
+      "size": 71620,
+      "tag": "v0.1.0",
+      "url": "https://github.com/ice-wocker/iceScan/releases/download/v0.1.0/iceScan-0.1.0.apk"
+    },
+    "iceScribe": {
+      "asset": "iceScribe-0.1.1.apk",
+      "downloads": 116,
+      "name": "v0.1.1",
+      "published_at": "2026-09-27",
+      "size": 61130620,
+      "tag": "v0.1.1",
+      "url": "https://github.com/ice-wocker/iceScribe/releases/download/v0.1.1/iceScribe-0.1.1.apk"
+    }
+  }
+}

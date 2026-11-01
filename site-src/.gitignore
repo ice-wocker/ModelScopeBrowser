@@ -1,0 +1,4 @@
+# 站点是构建产物，不入库——只有 data/ 与 scripts/ 是真相源
+site/
+__pycache__/
+*.pyc

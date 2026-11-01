@@ -1,0 +1,16 @@
+# 这个仓库的卖点是「零第三方依赖」，所以依赖更新看起来没什么可更的。
+# 但这个仓库依赖的不是 pip 包，是**别人的服务**：GitHub Actions。
+# 一个过期的 action 是真实的风险面（CI 里跑的是别人的代码），
+# 而且它不会自己发出任何提醒——所以这个配置盯的是 action 版本，不是库。
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    commit-message:
+      prefix: "ci"
+    labels:
+      - "dependencies"
+    # action 的大版本跳变常常带 breaking change，人工看一眼再合
+    open-pull-requests-limit: 3
