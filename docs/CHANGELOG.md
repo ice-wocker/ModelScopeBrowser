@@ -4,6 +4,39 @@
 
 完整历史。按时间倒序。
 
+## v2.7.0 — 把散在四条分支上的改动收成一次版本
+
+这一版没有新写什么，做的是合并与对账：`fix/v2.6.1`、`fix/version-consistency`、
+`feat/agent-toolkit-57`、`feat/site-autoupdate`、`auto/profile-readme-1777` 五条分支各自独立开发，
+谁也没进过 `main`；版本号有的写 2.6.1、有的写 2.7.0，`app/build.gradle` 里仍是 2.6.1。
+现在全部合到一处，版本号只有一处真源。
+
+### 合并进来的
+
+- **智能体工具从 8 个扩到 57 个**（`feat/agent-toolkit-57`）：新增 `agent/ToolRegistry` 作为工具说明、
+  工具名白名单、危险动作判定的唯一真源，加工具不必再改三处。文件、文本、计算与时间、设备、
+  联网、记忆与待办、外部模型七组工具，按组开关；新增 `PathGuard` 作为 shell 执行前的两道闸，
+  `SecureRedactor` 过滤密钥；纯逻辑件 `DigestKit` / `TimeKit` / `JsonAccess` / `SseParser` / `Bm25`
+  / `DiffKit` / `DocConverter` 都能在 JVM 上直接单测。
+- **修掉「文档说到了、代码没做到」的一批问题**（`fix/v2.6.1`）：短读导致对话历史整份丢失、
+  会话文件没有写入上限、取消下载等于放弃全部进度、断点续传可能拼出畸形文件、
+  `backup_rules.xml` 规则一直空转、Android 14 前台服务缺类型、未知长度下载没有兜底、
+  `LlamaEngine.load()` 回调为空时 NPE、原生层 `g_last_error` 数据竞争等。
+- **站点自动更新链路**（`feat/site-autoupdate`）：`site-src/` 下的构建与校验脚本、
+  `update.json` 与过期检测、首页筛选与更新记录页。
+- **GitHub 个人主页 README**（`auto/profile-readme-1777`）。
+
+### 版本号落地
+
+- `app/build.gradle` 的 `versionCode 15` / `versionName "2.7.0"` 与 README、文档、Release 产物
+  名对齐。此前 Gradle 里还是 `2.6.1`，装上去系统看到的是 2.6.1，而 Release 页写的是 2.7.0。
+- 合并冲突按「后续版本优先」处理：README 与文档里的版本行取 2.7.0，`CHANGELOG` 两节都保留。
+
+### 验证
+
+- `./gradlew testDebugUnitTest`：110 个用例全绿。
+- `./gradlew assembleRelease`：arm64-v8a（多档指令集）+ armeabi-v7a 双 ABI 出包。
+
 ## v2.6.1 — 把「说到了但没做到」的地方做实
 
 这一版不加功能。逐条对着代码找「文档宣称的行为和实际行为不一致」的地方，能复现的都修了，

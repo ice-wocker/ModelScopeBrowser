@@ -13,7 +13,7 @@ android {
         minSdk 24
         targetSdk 36
         versionCode 15
-        versionName "2.6.1"
+        versionName "2.7.0"
 
         ndk {
             // 只打包真机常见 ABI，控制 APK 体积与编译时间

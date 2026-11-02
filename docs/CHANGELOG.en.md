@@ -4,6 +4,44 @@
 
 The full history, newest first.
 
+## v2.7.0 — five branches, one version
+
+No new features in this release. It is a merge-and-reconcile pass: `fix/v2.6.1`,
+`fix/version-consistency`, `feat/agent-toolkit-57`, `feat/site-autoupdate` and
+`auto/profile-readme-1777` were each developed in isolation and none had reached `main`.
+Version numbers disagreed (2.6.1 in the docs, 2.7.0 on the release page, 2.6.1 in
+`app/build.gradle`). Everything now lands in one place with a single source of truth.
+
+### Merged
+
+- **Agent tools grew from 8 to 57** (`feat/agent-toolkit-57`): `agent/ToolRegistry` is now the
+  single source for tool descriptions, the tool-name allowlist and the dangerous-action check,
+  so adding a tool no longer means editing three lists. Seven groups (files, text, math & time,
+  device, network, memory & todo, external models) can be toggled per group; `PathGuard` gates
+  shell execution and `SecureRedactor` strips secrets. The pure-logic helpers — `DigestKit`,
+  `TimeKit`, `JsonAccess`, `SseParser`, `Bm25`, `DiffKit`, `DocConverter` — are unit-testable on the JVM.
+- **Documented-but-missing behaviour fixed** (`fix/v2.6.1`): chat history wiped by short reads,
+  no write cap on session files, cancel throwing away all download progress, resumable downloads
+  splicing mismatched ranges, `backup_rules.xml` never matching anything, missing foreground
+  service type on Android 14, no fallback for unknown-length downloads, NPE on a null load
+  callback in `LlamaEngine.load()`, and a data race on the native `g_last_error`.
+- **Site auto-update pipeline** (`feat/site-autoupdate`): build and check scripts under `site-src/`,
+  `update.json` plus staleness detection, home-page filters and a release history page.
+- **GitHub profile README** (`auto/profile-readme-1777`).
+
+### Version alignment
+
+- `app/build.gradle` now carries `versionCode 15` / `versionName "2.7.0"`, matching the README,
+  the docs and the release artefact name. Previously the installed app reported 2.6.1 while the
+  release page advertised 2.7.0.
+- Merge conflicts were resolved newest-version-wins: version lines in the READMEs take 2.7.0 and
+  both changelog sections are kept.
+
+### Verification
+
+- `./gradlew testDebugUnitTest`: 110 tests, all green.
+- `./gradlew assembleRelease`: dual-ABI build (arm64-v8a multi-variant, armeabi-v7a).
+
 ## v2.6.1 — making the documented behaviour actually true
 
 No new features. Every item below was found by comparing what the docs claim with what the code does,
