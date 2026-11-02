@@ -1,0 +1,84 @@
+name: Sync releases
+
+# 「站点自己知道新版本」这件事，靠的是这条流水线，不是靠人记得手改 JSON。
+#
+# 三个入口，各管一段：
+#   1. repository_dispatch：对方仓库一发 Release（或每天一次）就推我们一下，秒级同步；
+#   2. schedule：每小时兜底。对方的 webhook 会丢、会重装、会忘配，定时不会；
+#   3. workflow_dispatch：手点，用于「我现在就要」。
+#
+# 幂等是关键：数据没变就什么都不提交，因此每小时跑一次不会把仓库刷成一堆空提交。
+# 构建过程本身仍然不联网（这是站点自己的承诺），联网的只有这个同步动作。
+# yamllint disable-line rule:truthy
+on:
+  repository_dispatch:
+    types: [release, sync]
+  schedule:
+    - cron: '17 * * * *'      # 每小时 17 分，错开整点的拥挤
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write               # 发现新版本时开 Issue 提醒（这是「通知」，不改变数据）
+
+concurrency:
+  group: sync-releases
+  cancel-in-progress: false   # 同步不能被打断：中途取消会留下半更新的快照
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      # 拉一次线上 Release 清单。--write 落盘，--notify 在新版本出现时开 Issue。
+      # token 用默认的 GITHUB_TOKEN 即可：读公开 Release 不需要额外权限，
+      # 但开 Issue 需要 issues: write（上面已声明）。限流上限也比匿名高得多。
+      - name: Fetch releases
+        id: fetch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -o pipefail
+          python3 scripts/fetch_releases.py --write --notify --repo "${{ github.repository }}" | tee /tmp/sync.log
+          # 个别仓库拉取失败（网络抽风）不应让整条流水线红：
+          # fetch_releases.py 会把「已经拿到的」合并进快照，这是有意的部分前进。
+
+      - name: Show summary
+        run: |
+          {
+            echo "### Release 同步"
+            echo ''
+            echo "变更：${{ steps.fetch.outputs.changed == 'true' && '有' || '无' }}"
+            echo ''
+            echo '```'
+            tail -20 /tmp/sync.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # 数据变了才继续。这一步让「每小时跑一次」不会产生噪音提交，
+      # 也让下面的构建-校验-部署只在真的需要时发生。
+      - name: Build & self check (only when data changed)
+        if: steps.fetch.outputs.changed == 'true'
+        run: |
+          python3 scripts/build_site.py
+          # 同步时也走 --skip-links：外链体检是 ci.yml 的事，
+          # 这里只要「改完数据后站点仍然自洽」，不该因为某个镜像抖动就卡住发版。
+          python3 scripts/check_site.py --skip-links
+
+      # 先提交、再推送：推送会触发 deploy.yml，让 Pages 真正更新。
+      # 如果在这里直接部署，Pages 的产物会与仓库里的快照对不上——
+      # 下次有人重新构建，页面就会「变回去」。快照必须是真相源，提交在部署之前。
+      - name: Commit snapshot
+        if: steps.fetch.outputs.changed == 'true'
+        run: |
+          git config user.name  "release-sync[bot]"
+          git config user.email "release-sync@users.noreply.github.com"
+          git add data/releases.json
+          # 说明里带上版本变化，将来 git log 就是一部发版史
+          git commit -m "chore(sync): 同步 Release 快照" -m "$(tail -20 /tmp/sync.log | grep '^  - ' || echo '见 data/releases.json')"
+          git push

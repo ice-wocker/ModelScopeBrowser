@@ -1,0 +1,10 @@
+# 这个仓库是纯文本（Python + Markdown + HTML 模板），不该出现二进制。
+# 加一条兜底规则，防止以后有人把构建产物（APK / 图片）直接提交进来——
+# 站点产物 site/ 本来就在 .gitignore 里，这里是第二道门。
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary
+*.apk binary
+*.woff2 binary
