@@ -40,7 +40,7 @@ jobs:
           java-version: '17'
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
 
       - name: Unit tests
         run: ./gradlew testDebugUnitTest --no-daemon --stacktrace
@@ -77,7 +77,7 @@ jobs:
           java-version: '17'
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
 
       # 镜像已预装 Android SDK；这里只补齐项目需要的 platform/build-tools/ndk/cmake。
       # 注意：不要用 android-actions/setup-android，它会执行 `sdkmanager tools`，
