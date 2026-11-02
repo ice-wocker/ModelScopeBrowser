@@ -36,14 +36,14 @@ jobs:
         run: python3 scripts/build_site.py
       - name: Assert output
         run: |
-          for f in index.html store.html tags.html search.json CNAME 404.html \
+          for f in index.html store.html tags.html changes.html search.json CNAME 404.html \
                    sitemap.xml robots.txt feed.xml icon.svg style.css update.json; do
             test -f "site/$f" || { echo "缺少产物 $f"; exit 1; }
           done
           grep -q 'icesuite.eu.org' site/CNAME
           pages=$(find site -name '*.html' | wc -l)
           echo "生成 HTML 页面数: $pages"
-          test "$pages" -ge 14
+          test "$pages" -ge 15
           n=$(grep -o 'data-apk="' site/store.html | wc -l)
           echo "商店页可下载: $n"
           test "$n" -ge 8

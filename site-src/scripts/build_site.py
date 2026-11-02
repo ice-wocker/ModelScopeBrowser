@@ -126,7 +126,13 @@ def load():
         # 版本号 / 校验值：数据里没有就是空，update.json 里显式写 null。
         # 不靠 versionName 反推 versionCode —— 猜错会让客户端以为「已是最新」。
         p["version_code"] = rel.get("version_code")
+        # 校验值：GitHub 在资产元数据里给了就有，没给就是 None（update.json 里写 null）。
+        # 页面只展示、不自算——同步任务已经把声明值冻进快照，构建过程不联网。
         p["sha256"] = rel.get("sha256")
+        # 发版史：勾选「更新记录」页用。顺序原样保留（GitHub 返回的是发布时间倒序），
+        # 渲染时不再排序——排序规则一变，页面上的「上一版」就可能变成未来版。
+        hist = rel.get("history")
+        p["history"] = [dict(h) for h in hist] if isinstance(hist, list) else []
         p["installable"] = bool(p.get("platform") and p["dl_release"])
         # 文案里的 {size} 只在这里替换，保证「页面上的体积」与「Release 里的字节数」
         # 永远是同一个数。没有 Release 的项目保留原样，不做假数据。
@@ -340,6 +346,42 @@ border:1px solid var(--border);border-radius:999px;padding:3px 10px;align-self:c
 .fresh{margin-top:10px;font-size:.86rem;border-radius:8px;padding:8px 12px;line-height:1.55}
 .fresh.ok{background:rgba(126,231,135,.08);border:1px solid rgba(126,231,135,.3)}
 .fresh.warn{background:rgba(255,180,84,.1);border:1px solid rgba(255,180,84,.4)}
+/* ---- 更新记录 / 校验值 ---- */
+.codebox{margin:.4em 0;padding:9px 12px;background:var(--panel2);border:1px solid var(--border);
+border-radius:8px;overflow-x:auto}
+.codebox code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+font-size:.82rem;color:var(--accent);white-space:pre;word-break:break-all}
+ol.versions{list-style:none;margin:.4em 0 0;padding:0;border-left:2px solid var(--border)}
+li.vitem{position:relative;padding:0 0 1.1em 16px}
+li.vitem::before{content:"";position:absolute;left:-5px;top:.55em;width:8px;height:8px;
+border-radius:50%;background:var(--border)}
+li.vitem:first-child::before{background:var(--accent2)}
+.vhead{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.vhead b{font-size:.95rem}
+ul.vlist{margin:.4em 0 0;padding-left:1.15em;color:var(--muted);font-size:.87rem;line-height:1.7}
+ul.vlist li{margin:.15em 0}
+ul.vlist code,.vbody code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+font-size:.85em;background:var(--panel2);border:1px solid var(--border);border-radius:4px;padding:0 4px}
+.vempty{margin:.35em 0 0;color:var(--muted);font-size:.85rem;font-style:italic}
+.vbody{margin:.4em 0 0;color:var(--muted);font-size:.88rem}
+.vbody h4,.vbody h5,.vbody h6{margin:.8em 0 .3em;color:var(--fg);font-size:.92rem}
+.vbody p{margin:.4em 0}
+.vbody ul,.vbody ol{margin:.4em 0;padding-left:1.2em}
+.vbody pre{margin:.5em 0;padding:10px 12px;background:var(--panel2);border:1px solid var(--border);
+border-radius:8px;overflow-x:auto;font-size:.82rem}
+.vbody blockquote{margin:.5em 0;padding-left:12px;border-left:2px solid var(--border);color:var(--muted)}
+table.md{width:100%;border-collapse:collapse;margin:.6em 0;font-size:.85rem}
+table.md th,table.md td{text-align:left;padding:5px 9px;border-bottom:1px solid var(--border)}
+.applog{margin:0 0 2.6em;padding-top:.4em;border-top:1px solid var(--border)}
+.applog:target{background:linear-gradient(180deg,rgba(90,209,255,.07),transparent 120px)}
+.loghead{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin:.9em 0 .5em}
+.logname{font-weight:700;font-size:1.05rem;color:var(--fg)}
+.logname:hover{color:var(--accent);text-decoration:none}
+.logjump{margin:1em 0 1.4em}
+.filabel{display:inline-block;color:var(--muted);font-size:.78rem;letter-spacing:.06em;
+text-transform:uppercase;margin:0 8px 6px 0}
+.filabel + .pill{margin-left:0}
+#filternote{margin:-.6em 0 1.4em}
 @media (prefers-reduced-motion:reduce){
 html{scroll-behavior:auto}
 *,*::before,*::after{animation-duration:.001ms!important;transition-duration:.001ms!important}
@@ -1026,17 +1068,98 @@ REVEAL_JS = r"""
 """
 
 
+FILTER_JS = r"""
+/* 首页筛选：按分组 / 按标签，一次只筛一个维度，点第二次取消。
+   ------------
+   刻意不做的事：
+   ① 不改地址栏。改了就会往浏览器历史里塞条目，用户按「返回」会退回上一次筛选，
+      而不是离开这个页面——这是最容易被当成 bug 的行为。
+   ② 不用 hash。hash 会和「#on-device-ai」这类分组锚点打架。
+   ③ 没有 JS 时不能有别的影响：按钮是 <button>，标签是 <a>，
+      脚本没跑起来的话按钮不响应、链接照常跳到标签索引页。两者都不会坏。
+   筛完在底部说明「正在筛 X，共 N 个」，因为筛完页面变短时，
+   用户需要知道是自己点出来的，而不是站点只剩这几个项目。 */
+(function(){
+  var bar = document.getElementById('filterbar');
+  var note = document.getElementById('filternote');
+  if(!bar) return;
+  var cards = [].slice.call(document.querySelectorAll('.cards > .card'));
+  if(!cards.length) return;
+  var sections = [].slice.call(document.querySelectorAll('section.group'));
+  var current = null;
+
+  function tagOf(card){
+    var t = card.querySelector('.badges');
+    return t ? [].slice.call(t.querySelectorAll('.badge')).map(function(b){
+      return b.textContent.trim();
+    }) : [];
+  }
+  function keyOf(card){ return card.getAttribute('data-key') || ''; }
+
+  function apply(filter){
+    var shown = 0;
+    cards.forEach(function(c){
+      var ok = true;
+      if(filter){
+        /* 空字符串 = 不筛。不要用 "group:" 表示「全部」：那会让
+           filter.slice(0, -1) 这种写法切出半个键，点「全部」变成筛 0 个。 */
+        var kind = filter.slice(0, filter.indexOf(':'));
+        var val = filter.slice(filter.indexOf(':') + 1);
+        ok = kind === 'group' ? keyOf(c).split(' ').indexOf('g:' + val) >= 0
+                              : tagOf(c).indexOf(val) >= 0;
+      }
+      c.hidden = !ok;
+      if(ok) shown++;
+    });
+    /* 分组整段都没东西了就整段收掉，否则页面上会留下一排空标题 */
+    sections.forEach(function(sec){
+      var any = [].slice.call(sec.querySelectorAll('.cards > .card')).some(function(c){ return !c.hidden; });
+      sec.hidden = !any;
+    });
+    if(note){
+      if(filter){
+        note.hidden = false;
+        note.textContent = '正在筛选：' + (note.getAttribute('data-label') || '全部')
+          + '，共 ' + shown + ' 个项目。再点一次同一个按钮取消筛选。';
+      }else{
+        note.hidden = true;
+      }
+    }
+    bar.querySelectorAll('[data-filter]').forEach(function(el){
+      /* 「全部」按钮的 data-filter 是空串，只有「没有筛选」时才算选中 */
+      var v = el.getAttribute('data-filter');
+      el.classList.toggle('on', filter ? v === filter : v === '');
+    });
+  }
+
+  bar.addEventListener('click', function(e){
+    var el = e.target.closest ? e.target.closest('[data-filter]') : null;
+    if(!el) return;
+    /* 标签是 <a>：有 JS 时截住跳转，就地筛选；没有 JS 时它就是普通链接。
+       Ctrl / Cmd / 中键照旧放行——想让链接「还是链接」的人得逞。 */
+    if(el.tagName === 'A' && (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1)) return;
+    e.preventDefault();
+    var f = el.getAttribute('data-filter') || '';
+    current = (!f || current === f) ? null : f;
+    if(note) note.setAttribute('data-label', el.getAttribute('data-label') || '');
+    apply(current);
+  });
+})();
+"""
+
+
 def nav_items(site, prefix):
     """导航项只在这里出现一次。"""
     return [
         (f"{prefix}index.html", "全部项目"),
         (f"{prefix}store.html", "应用商店"),
+        (f"{prefix}changes.html", "更新记录"),
         (f"{prefix}tags.html", "标签"),
         (f"{site['author_url']}", "GitHub"),
     ]
 
 
-def page(site, title, body, depth=0, search=False, store=False, mirrors=None,
+def page(site, title, body, depth=0, search=False, store=False, filters=False, mirrors=None,
          desc=None, og_type="website", canonical=None, jsonld=None, robots="index,follow"):
     """渲染一张页面。
 
@@ -1051,6 +1174,8 @@ def page(site, title, body, depth=0, search=False, store=False, mirrors=None,
     desc = desc or site["desc"]
 
     script = f"<script>{SEARCH_JS}</script>" if search else ""
+    if filters:
+        script += f"<script>{FILTER_JS}</script>"
     if store:
         script += f"<script>window.__DL={json.dumps(mirrors or {}, ensure_ascii=False)}</script>"
         script += f"<script>{STORE_JS}</script>"
@@ -1137,6 +1262,158 @@ def badge(text, kind):
     return f'<span class="badge {kind}">{esc(text)}</span>'
 
 
+def app_sha_short(p):
+    """短校验值。前 12 位足够人眼比对，完整值放在 update.json 与详情页里。"""
+    sha = p.get("sha256") or ""
+    return sha[:12] if sha else ""
+
+
+# ---------------------------------------------------------------------------
+# Release 正文渲染：一个刻意做小的 Markdown 子集
+# ---------------------------------------------------------------------------
+# 为什么自己写、不用库：这个站的立身之本是「零第三方依赖，只用标准库」。
+# 为了渲染几十段 changelog 引一个 Markdown 解析器，就把立身之本换掉了。
+#
+# 为什么是子集而不是「尽力而为」：Release 正文是**别人写的文本**，其中也可能
+# 混进 HTML。所以流程永远是「先整体转义，再按白名单把标记放回来」——
+# 任何没被明确认出的写法都会退化成纯文本，永远不会变成可执行内容。
+# 支持：标题 / 段落 / 列表（含嵌套一层）/ 引用 / 围栏代码 / 表格 / 行内 code·粗体·链接。
+# 不支持：原始 HTML、图片、脚注 —— 不支持就不渲染，也不猜。
+_MD_LINK = re.compile(r"\[([^\]]+)\]\((https?://[^\s)]+)\)")
+_MD_CODE = re.compile(r"`([^`\n]+)`")
+_MD_BOLD = re.compile(r"\*\*([^*\n]+)\*\*|__([^_\n]+)__")
+
+
+def _md_inline(text):
+    out = esc(text)
+    # 链接先抽出来占位，避免 URL 里的下划线被当粗体标记吃掉
+    links = []
+
+    def keep(m):
+        links.append((m.group(1), m.group(2)))
+        return f"\x00{len(links) - 1}\x00"
+
+    out = _MD_LINK.sub(keep, out)
+    out = _MD_BOLD.sub(lambda m: f"<b>{m.group(1) or m.group(2)}</b>", out)
+    out = _MD_CODE.sub(lambda m: f"<code>{m.group(1)}</code>", out)
+    out = re.sub(r"\x00(\d+)\x00",
+                 lambda m: (f'<a href="{esc(links[int(m.group(1))][1])}" rel="nofollow noopener">'
+                            f"{esc(links[int(m.group(1))][0])}</a>"), out)
+    return out
+
+
+def md_block(text, limit=0):
+    """把 Release 正文渲染成 HTML。limit>0 时按段落截断（列表页用）。"""
+    lines = (text or "").replace("\r\n", "\n").split("\n")
+    html_out, i, n = [], 0, len(lines)
+    while i < n:
+        line = lines[i]
+        st = line.strip()
+        if not st:
+            i += 1
+            continue
+        # 围栏代码
+        if st.startswith("```"):
+            i += 1
+            buf = []
+            while i < n and not lines[i].strip().startswith("```"):
+                buf.append(lines[i])
+                i += 1
+            i += 1
+            html_out.append(f"<pre><code>{esc(chr(10).join(buf))}</code></pre>")
+            continue
+        # 表格：连续的 | 行，第二行必须是分隔行
+        if st.startswith("|") and i + 1 < n and re.match(r"^\|[\s:|-]+\|$", lines[i + 1].strip()):
+            head = _md_row(lines[i])
+            i += 2
+            rows = []
+            while i < n and lines[i].strip().startswith("|"):
+                rows.append(_md_row(lines[i]))
+                i += 1
+            html_out.append("<table class=\"md\"><thead><tr>"
+                            + "".join(f"<th>{c}</th>" for c in head)
+                            + "</tr></thead><tbody>"
+                            + "".join("<tr>" + "".join(f"<td>{c}</td>" for c in r) + "</tr>"
+                                      for r in rows)
+                            + "</tbody></table>")
+            continue
+        # 标题
+        m = re.match(r"^(#{1,6})\s+(.*)$", st)
+        if m:
+            lvl = min(3 + len(m.group(1)), 6)
+            html_out.append(f"<h{lvl}>{_md_inline(m.group(2).strip())}</h{lvl}>")
+            i += 1
+            continue
+        # 引用
+        if st.startswith(">"):
+            buf = []
+            while i < n and lines[i].strip().startswith(">"):
+                buf.append(lines[i].strip()[1:].strip())
+                i += 1
+            html_out.append(f"<blockquote>{_md_inline(' '.join(buf))}</blockquote>")
+            continue
+        # 列表（- * + 与 1. 都算；缩进两格以上算嵌套一层）
+        if re.match(r"^([-*+]|\d+[.)])\s+", st):
+            items, ordered = [], bool(re.match(r"^\d+", st))
+            while i < n:
+                cur = lines[i]
+                cs = cur.strip()
+                if re.match(r"^([-*+]|\d+[.)])\s+", cs):
+                    items.append(_md_inline(re.sub(r"^([-*+]|\d+[.)])\s+", "", cs)))
+                elif cs and (cur.startswith("  ") or cur.startswith("\t")) and items:
+                    items[-1] += " " + _md_inline(cs)
+                elif not cs:
+                    # 空行后如果还是列表项就继续，否则结束
+                    if i + 1 < n and re.match(r"^\s*([-*+]|\d+[.)])\s+", lines[i + 1]):
+                        i += 1
+                        continue
+                    break
+                else:
+                    break
+                i += 1
+            tag = "ol" if ordered else "ul"
+            html_out.append(f"<{tag}>" + "".join(f"<li>{x}</li>" for x in items) + f"</{tag}>")
+            continue
+        # 段落：吃到空行或下一个块起始
+        buf = [st]
+        i += 1
+        while i < n and lines[i].strip() and not re.match(
+                r"^(#{1,6}\s|[-*+]\s|\d+[.)]\s|>|```|\|)", lines[i].strip()):
+            buf.append(lines[i].strip())
+            i += 1
+        html_out.append(f"<p>{_md_inline(' '.join(buf))}</p>")
+
+    if limit and len(html_out) > limit:
+        # 截断而不是省略号乱塞：宁可少说，也不让列表页长成一部书
+        html_out = html_out[:limit]
+        html_out.append('<p class="fine">…（完整正文见 Releases 页面）</p>')
+    return "".join(html_out)
+
+
+def _md_row(line):
+    cells = [c.strip() for c in line.strip().strip("|").split("|")]
+    return [_md_inline(c) for c in cells]
+
+
+def _body_is_link_only(body):
+    """「正文只有一行 Full Changelog 链接」——GitHub 自动生成的占位内容。
+
+    这类正文没有信息量（对比链接人人都能点），把它渲染成一大段正文
+    只会让「更新记录」看起来像有内容，实际什么也没说。所以单独识别出来。
+    """
+    t = (body or "").strip()
+    if not t:
+        return True
+    # 裸 URL 也要算「没有信息量」：GitHub 自动生成的那句正文里，链接并不是
+    # Markdown 语法（`**Full Changelog**: https://...`），所以必须按裸 URL 处理，
+    # 否则会把「只有对比链接」误判成「有正文」。
+    stripped = _MD_LINK.sub(" ", t)
+    stripped = re.sub(r"https?://\S+", " ", stripped)
+    stripped = stripped.replace("**", "").replace("*", "")
+    stripped = re.sub(r"Full\s*Changelog", "", stripped, flags=re.I)
+    return not re.sub(r"[\s:：\-]", "", stripped)
+
+
 def _jsonld_project(site, p):
     """单个项目的结构化数据。类型用 SoftwareApplication —— 这些确实是可安装的应用，
     搜索引擎能据此展示「软件」富摘要。没有可安装产物的项目不带该类型，
@@ -1211,6 +1488,98 @@ def _rel_time(site, published_at):
     return published_at or ""
 
 
+def _versions_group(versions, anchor=None, max_items=0):
+    """一段「版本 → 条目」。versions 已是发布时间倒序，这里不再排序。
+
+    为什么单独抽出来：详情页与更新记录页要渲染同一批数据，但一处要短（最近几条）、
+    一处要全（整部历史）。渲染代码只写一次，两边就不可能长得不一样。
+    """
+    out = []
+    for n, v in enumerate(versions):
+        aid = f' id="{anchor}"' if anchor and n == 0 else ""
+        items = v.get("items") or []
+        body = ""
+        if items:
+            seen = set()
+            lis = []
+            for it in items:
+                text = md_bullet_inline(it)
+                if text in seen:
+                    continue          # 同一段重复的短句（复制粘贴出来的）只留一条
+                seen.add(text)
+                lis.append(f"<li>{text}</li>")
+                if max_items and len(lis) >= max_items:
+                    break
+            body = "<ul class=\"vlist\">" + "".join(lis) + "</ul>"
+        elif v.get("placeholder"):
+            body = '<p class="vempty">这一版没有写更新说明，只有自动生成的上游对比链接。</p>'
+        elif v.get("full_only") and v.get("body_html"):
+            body = f'<div class="vbody">{v["body_html"]}</div>'
+        else:
+            body = '<p class="vempty">这一版没有留下说明。</p>'
+        out.append(
+            f'<li class="vitem"{aid}><div class="vhead">'
+            f'<b>{esc(v["tag"])}</b>'
+            f'<span class="fine">{esc(v.get("published_at") or "")}'
+            f'{(" · " + human_size(v.get("size"))) if v.get("size") else ""}</span>'
+            + (f'<a class="fine" href="{esc(v["url"])}">下载这一版</a>' if v.get("url") else "")
+            + '</div>' + body + "</li>")
+    return "<ol class=\"versions\">" + "".join(out) + "</ol>"
+
+
+def md_bullet_inline(text):
+    """把已渲染的行内 HTML 收尾（去空白）。
+
+    不再走一遍 `_md_inline`：那些片段来自 `md_block()` 的白名单渲染，
+    已经是安全的 HTML，再转义一次只会在页面上显示成 `&lt;code&gt;`。
+    """
+    return (text or "").strip()
+
+
+def _prepare_history(p):
+    """把快照里的 Release 历史整理成渲染需要的形状。
+
+    原则：**不编内容**。每条版本要么有作者写的正文（渲染成条目），
+    要么明确标注「这一版没有写说明」。不拿版本号去生成「改进了性能」这种话——
+    读者一眼能看出那是凑数，而这会连带毁掉其它真实文案的可信度。
+    """
+    hist = p.get("history") or []
+    if not hist:
+        return []
+    out = []
+    for h in hist:
+        body_html = md_block(h.get("body") or "")
+        placeholder = _body_is_link_only(h.get("body") or "")
+        # 段落级内容取出来做条目：标题行、列表项、段落。
+        # 表格/代码块留在「完整正文」里——把它们塞进一行会读不成句子。
+        items = []
+        full_only = False
+        if not placeholder:
+            for chunk in re.findall(r"<h\d>(.*?)</h\d>|<li>(.*?)</li>|<p>(.*?)</p>",
+                                    body_html, flags=re.S):
+                text = next((c for c in chunk if c), "")
+                if len(re.sub(r"<[^>]+>", "", text)) >= 6:
+                    # 这里拿到的是**已经渲染好**的行内 HTML（code / b / a），
+                    # 不能再转义一遍——否则页面上会直接看到 &lt;code&gt; 这串字符。
+                    # 安全性由上游保证：这些片段全部来自 md_block() 的白名单渲染，
+                    # 原文里的尖括号在那一步已经变成实体了。
+                    items.append(text)
+        # 正文有内容但一条能成句的条目都没抽出来（比如整篇是表格 / 代码），
+        # 那就退回「完整正文」，而不是显示「没有说明」——那是假话。
+        full_only = bool(body_html) and not items and not placeholder
+        out.append({
+            "full_only": full_only,
+            "tag": h.get("tag") or "",
+            "published_at": h.get("published_at") or "",
+            "size": h.get("size") or 0,
+            "url": h.get("url") or "",
+            "items": items,
+            "placeholder": placeholder,
+            "body_html": "" if placeholder else body_html,
+        })
+    return out
+
+
 def build(site, groups, projects, mirrors=None):
     # 可安装集合先算：首页 hero 与商店页都要用，不能等商店页渲染完才知道
     apps = [p for p in projects if p["installable"]]
@@ -1268,8 +1637,15 @@ def build(site, groups, projects, mirrors=None):
             # <a> 嵌套 <a>。浏览器不会报错，它会当场把内层 <a> 提到外层之外——
             # 于是卡片被拆成两半，还多出几个「只有技术栈、没有标题」的幽灵卡片，
             # 而构建、自检、HTTP 状态码全都正常。所以改成一个容器 + 一个铺满的标题链接。
+            # data-key 让首页筛选（data-filter）有一个稳定的判定依据：
+            # 「g:<分组>」+ 每个标签。不靠 DOM 文本匹配——文案里可能刚好出现
+            # 标签同名子串，那样筛出来的结果是随机的。
+            # 卡片上只带分组键与全部标签键。首页标签行只展示前 N 个标签，
+            # 但「哪些标签属于这张卡」必须写全——否则补一个标签进首页，
+            # 筛选就变成 0 个项目（点了才知道，页面上只看到一片空白）。
+            dkey = " ".join([f'g:{p["group"]}'] + [f't:{t}' for t in p["tags"]])
             cards.append(
-                f'<div class="card reveal">'
+                f'<div class="card reveal" data-key="{esc(dkey)}">'
                 f'<a class="cardhit" href="{p["url"]}" data-rv aria-label="{esc(p["name"])}"></a>'
                 f'<div class="t"><a href="{p["url"]}">{esc(p["name"])}</a></div>'
                 f'<div class="p">{p["pitch"]}</div>'
@@ -1294,9 +1670,20 @@ def build(site, groups, projects, mirrors=None):
         for p in recent
     )
 
+    # 分组筛选：分组是清单里固定的一层，所以按钮也固定生成，不需要 JS 去推断。
+    group_pills = "".join(
+        f'<button class="pill" type="button" data-filter="group:{slug}" data-label="{esc(label)}">'
+        f'{esc(label)} <b>{len(by_group.get(slug, []))}</b></button>'
+        for slug, label, _ in groups if by_group.get(slug))
+
     top_tags = list(tagmap.items())[:14]
+    # 首页标签：既能当筛选按钮，也保留「点开看这一类」的链接。
+    # 两者合一的做法是 <a> + 点击时先筛不改地址；但那样一按 Ctrl/中键就跳走了，
+    # 键盘用户会以为这是纯链接。所以这里给它显式的 data-filter，
+    # 由脚本接管点击并阻止默认跳转，href 作为「没有 JS 时的退路」保留。
     tag_html = "".join(
-        f'<a class="pill" href="{esc(tag_slug[t])}">{esc(t)} <b>{len(ps)}</b></a>'
+        f'<a class="pill" href="{esc(tag_slug[t])}" data-filter="tag:{esc(t)}" '
+        f'data-label="{esc(t)}">{esc(t)} <b>{len(ps)}</b></a>'
         for t, ps in top_tags
     )
 
@@ -1319,14 +1706,20 @@ def build(site, groups, projects, mirrors=None):
  aria-controls="results" aria-autocomplete="list"
  placeholder="搜索 {len(projects)} 个项目（名称 / 简介 / 技术栈 / 亮点）…" autocomplete="off">
 <div id="results"></div>
-<div class="filterbar">{tag_html}<a class="pill" href="tags.html">全部标签 →</a></div>
+<div class="filterbar" id="filterbar">
+<span class="filabel">按分组</span>
+<button class="pill on" type="button" data-filter="" data-label="全部">全部 <b>{len(projects)}</b></button>
+{group_pills}
+<span class="filabel">按标签</span>
+{tag_html}<a class="pill" href="tags.html">全部标签 →</a></div>
+<p class="fine" id="filternote" hidden></p>
 <details class="help" style="margin:1.2em 0 2em">
 <summary>最近更新</summary>
 <ul style="margin:.7em 0 0;padding-left:1.3em">{recent_html}</ul>
 </details>
 """ + "\n".join(sections)
     (OUT / "index.html").write_text(
-        page(site, f"{site['name']} · {site['tagline']}", body, 0, search=True,
+        page(site, f"{site['name']} · {site['tagline']}", body, 0, search=True, filters=True,
              desc=site["desc"], canonical=base + "/",
              jsonld=_jsonld_site(site, projects, apps)),
         encoding="utf-8")
@@ -1356,6 +1749,10 @@ def build(site, groups, projects, mirrors=None):
             facts.append(("发布时间", p["published_at"]))
         if p["downloads"]:
             facts.append(("累计下载", f"{p['downloads']} 次"))
+        if p.get("sha256"):
+            # 校验值放详情页而不放大列表：需要它的人（要校验文件的人）会来这儿，
+            # 其它人看到一串 64 位十六进制只会觉得页面杂。
+            facts.append(("SHA-256", p["sha256"]))
         facts_html = "".join(f'<div><b>{esc(v)}</b><span>{esc(k)}</span></div>' for k, v in facts)
 
         actions = []
@@ -1367,6 +1764,50 @@ def build(site, groups, projects, mirrors=None):
         actions.append(f'<a class="btn" href="{p["repo_url"]}">源码仓库</a>')
         if p["dl_release"]:
             actions.append(f'<a class="btn" href="{p["releases_url"]}">全部版本</a>')
+
+        # ---- 更新记录（正文就是 changelog，抓下来就是一部版本史）----
+        # 先按快照整理一遍：这份项目页也要用，不能等 changes.html 那边才处理。
+        hist = _prepare_history(p)
+        has_history = bool(hist)
+        if has_history:
+            # 详情页只给最近几版 + 一个「全部」入口；整部历史在 changes.html 里。
+            # 理由和标签索引页一致：详情页的任务是「这个项目值不值得装」，
+            # 不是「三年发生了什么」。
+            recent_versions = hist[:3]
+            more = ""
+            if len(hist) > len(recent_versions):
+                more = (f'<p class="fine" style="margin:.6em 0 0">'
+                        f'共 {len(hist)} 个版本 · <a href="changes.html#{p["id"]}">看完整更新记录 →</a></p>')
+            changelog_block = (
+                '<h2 id="changes">更新记录</h2>'
+                '<p class="fine" style="margin:-.2em 0 .9em">下面是各版本的发布说明，'
+                '原文来自 GitHub Release，站点只负责排版。</p>'
+                + _versions_group(recent_versions, anchor="vchangelog") + more)
+        else:
+            changelog_block = (
+                '<h2 id="changes">更新记录</h2>'
+                '<p class="fine">这个项目还没有可安装的 Release，所以没有版本史。'
+                '等它发了第一个版本，这里会自己长出来。</p>')
+
+        # ---- 完整性校验：给人手算用的那几行，不假装能自动完成 ----
+        verify_block = ""
+        if p["installable"]:
+            sha = p.get("sha256") or ""
+            verify_block = (
+                '<h2 id="verify">校验安装包</h2>'
+                '<p class="fine" style="margin:-.2em 0 .8em">'
+                '本站不托管 APK，文件直接来自 GitHub Release。'
+                '想确认下到的包没被改过，把它和下面这个值对一下即可。</p>'
+                '<div class="codebox"><code>'
+                f'sha256sum {esc(p["repo"])}-{esc(p["version"].lstrip("vV") or "latest")}.apk'
+                '</code></div>'
+                + (f'<div class="codebox"><code>{esc(sha)}</code></div>'
+                   if sha else
+                   '<p class="fine">GitHub 没有为这个资产提供 sha256 摘要，所以这里没有值。'
+                   '<b>不猜、不编</b>——一个错的校验值比没有校验值更糟：'
+                   '用户会以为自己下到了坏包。</p>')
+                + f'<p class="fine">机器可读的同一份数据在 <a href="update.json">update.json</a> 里。'
+                  'Windows 上可以用 <code>certutil -hashfile 文件名 SHA256</code>。</p>')
 
         tags_line = " ".join(
             f'<a class="badge" href="{esc(tag_slug[t])}">{esc(t)}</a>' for t in p["tags"])
@@ -1393,6 +1834,8 @@ def build(site, groups, projects, mirrors=None):
 {limits_block}
 <h2>技术栈</h2>
 <div class="tech">{techs}</div>
+{verify_block}
+{changelog_block}
 {''.join(pager)}"""
         (OUT / f'{p["id"]}.html').write_text(
             page(site, f'{p["name"]} · {site["name"]}', b,
@@ -1428,6 +1871,9 @@ def build(site, groups, projects, mirrors=None):
         page(site, f"标签索引 · {site['name']}", tag_body,
              desc=f"{site['name']}全部 {len(tagmap)} 个标签，按项目数排序",
              canonical=base + "/tags.html"), encoding="utf-8")
+
+    # ---- 更新记录（全部应用，整部发版史）----
+    build_changes(site, projects)
 
     # ---- 应用商店 ----
     build_store(site, groups, projects, mirrors)
@@ -1488,7 +1934,7 @@ def slugify(text):
 
 def write_sitemap(site, projects):
     base = site.get("base_url", "").rstrip("/")
-    pages = [("", "1.0"), ("store.html", "0.9"), ("tags.html", "0.6")]
+    pages = [("", "1.0"), ("store.html", "0.9"), ("changes.html", "0.8"), ("tags.html", "0.6")]
     for p in projects:
         pages.append((p["url"], "0.8"))
     rows = []
@@ -1506,7 +1952,7 @@ def write_robots(site):
         "User-agent: *\nAllow: /\nSitemap: %s/sitemap.xml\n" % base, encoding="utf-8")
 
 
-UPDATE_SCHEMA = 1
+UPDATE_SCHEMA = 2
 
 
 def write_update(site, apps):
@@ -1546,9 +1992,12 @@ def write_update(site, apps):
             },
         }
     payload = {
-        "_note": "构建产物，请勿手改。由 scripts/build_site.py 从 data/releases.json 生成。",
+        "_note": "构建产物，请勿手改。由 scripts/build_site.py 从 data/releases.json 生成。"
+                 "versionCode / sha256 缺失时是 null，请不要从 versionName 推算 versionCode。",
         "schema": UPDATE_SCHEMA,
         "site": site["name"],
+        # 站点自己也是机器可读的：客户端可以先看 snapshotAt 判断这份清单有多新。
+        "snapshotAt": _snapshot_at_iso(),
         "apps": entries,
     }
     (OUT / "update.json").write_text(
@@ -1630,6 +2079,90 @@ def _snapshot_at():
         return ts.replace("T", " ").rstrip("Z") + " UTC" if ts else "未知"
     except Exception:
         return "未知"
+
+
+def build_changes(site, projects):
+    """更新记录页：把每个应用的 Release 正文按版本排成一部时间线。
+
+    为什么值得单独一页：人真正想知道的是「这版改了什么」，而不是版本号。
+    Release 正文本来就是现成的 changelog，之前它只存在于 GitHub 的
+    Releases 页面里——那个页面按仓库分散，读一个人维护的 8 个应用要翻 8 个页面。
+
+    这里只做三件事：合并、按时间排、照原文排版。**不总结、不美化、不补写**。
+    没有正文的版本就明说「没有写说明」——把「没写」装成「有内容」比空着更糟。
+    """
+    apps = [p for p in projects if p["installable"]]
+    rows = []
+    # 时间线封面：最近发了什么。只列真的发了版的应用，没发过版的不凑数。
+    latest = sorted([p for p in apps if p["published_at"]],
+                    key=lambda x: x["published_at"], reverse=True)
+    cover = "".join(
+        f'<li><a href="changes.html#{p["id"]}">{esc(p["name"])}</a> '
+        f'<span class="fine">{esc(p["version"])} · {esc(p["published_at"])}'
+        f'{(" · " + p["size_text"]) if p["size_text"] else ""}</span></li>'
+        for p in latest[:5])
+
+    n_versions = 0
+    n_notes = 0
+    for p in apps:
+        hist = _prepare_history(p)
+        n_versions += len(hist)
+        n_notes += sum(1 for v in hist if not v.get("placeholder"))
+        if hist:
+            block = _versions_group(hist, anchor="vchangelog")
+        else:
+            block = ('<p class="fine">这个项目还没有版本史（GitHub 上没有带 APK 的正式 Release）。'
+                     '</p>')
+        rows.append(
+            f'<section class="applog" id="{p["id"]}">'
+            f'<div class="loghead">'
+            f'<a class="logname" href="{p["url"]}">{esc(p["name"])}</a>'
+            f'<span class="fine">{esc(p["pitch"]) and re.sub(r"<[^>]+>", "", p["pitch"])}</span></div>'
+            f'<div class="fine" style="margin:-.3em 0 .8em">'
+            f'当前 {esc(p["version"] or "—")} · {esc(p["size_text"] or "—")} · '
+            f'<a href="{p["dl_release"]}">下载最新</a> · '
+            f'<a href="{p["releases_url"]}">GitHub 上的全部版本</a></div>'
+            f'{block}</section>')
+
+    body = f'''<div class="hero">
+<h1>更新记录</h1>
+<p class="lead">每个应用「这一版改了什么」。正文原文来自各仓库的 GitHub Release，
+站点只负责合并与排版——不总结、不美化，也不替作者补写没写的说明。</p>
+</div>
+<details class="help">
+<summary>最近发布的版本（{len(latest)} 个应用有版本史）</summary>
+<ul style="margin:.7em 0 0;padding-left:1.3em">{cover}</ul>
+</details>
+<div class="logjump filterbar">{"".join(
+    f'<a class="pill" href="#{p["id"]}">{esc(p["name"])} <b>{len(_prepare_history(p))}</b></a>'
+    for p in apps)}</div>
+<p class="fine" style="margin-bottom:2em">
+共 {len(apps)} 个应用、{n_versions} 个版本记录，其中 {n_notes} 个版本带有作者写的说明；
+其余版本只有 GitHub 自动生成的对比链接（原文如此，未自行补写）。
+这份数据由 <code>scripts/fetch_releases.py</code> 随版本快照一起冻结，
+某个应用发了新版，这里会自动多出一条。</p>
+{"".join(rows)}
+'''
+    (OUT / "changes.html").write_text(
+        page(site, f"更新记录 · {site['name']}", body,
+             desc=f"{site['name']}全部应用的发版记录：每个版本改了什么，原文来自 GitHub Release",
+             canonical=site.get("base_url", "").rstrip("/") + "/changes.html"),
+        encoding="utf-8")
+
+
+def _snapshot_at_iso():
+    """快照时间的 ISO 形式（给机器读）。
+
+    页面上用的是 `_snapshot_at()` 那种「人读的」写法；这里保留原始 ISO，
+    好让客户端能直接解析比较。两者同源，不会打架。
+    """
+    f = DATA / "releases.json"
+    if not f.exists():
+        return None
+    try:
+        return json.loads(f.read_text(encoding="utf-8")).get("generated_at") or None
+    except Exception:
+        return None
 
 
 def store_app_row(p, prefix=""):
@@ -1730,6 +2263,8 @@ def build_store(site, groups, projects, mirrors=None):
 </div>
 <div class="fresh" id="freshline" hidden></div>
 </div>
+<p class="fine" style="margin:.2em 0 0">想看「这一版改了什么」而不是版本号？
+去 <a href="changes.html">更新记录</a>——那里是各版本发布说明的原文。</p>
 <h2 style="margin-top:2.4em">可安装应用（{len(apps)}）</h2>
 <div class="applist">{rows}</div>
 <h2>不是安装包（{len(others)}）</h2>

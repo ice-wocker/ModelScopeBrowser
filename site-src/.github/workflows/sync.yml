@@ -66,7 +66,9 @@ jobs:
         if: steps.fetch.outputs.changed == 'true'
         run: |
           python3 scripts/build_site.py
-          python3 scripts/check_site.py
+          # 同步时也走 --skip-links：外链体检是 ci.yml 的事，
+          # 这里只要「改完数据后站点仍然自洽」，不该因为某个镜像抖动就卡住发版。
+          python3 scripts/check_site.py --skip-links
 
       # 先提交、再推送：推送会触发 deploy.yml，让 Pages 真正更新。
       # 如果在这里直接部署，Pages 的产物会与仓库里的快照对不上——

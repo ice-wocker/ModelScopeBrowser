@@ -23,12 +23,12 @@ jobs:
       - name: Assert output
         run: |
           # 产物清单写全：少一个文件在浏览器里就是 404，而构建本身是绿的。
-          for f in index.html store.html tags.html search.json CNAME 404.html \
-                   sitemap.xml robots.txt feed.xml icon.svg style.css; do
+          for f in index.html store.html tags.html changes.html search.json CNAME 404.html \
+                   sitemap.xml robots.txt feed.xml icon.svg style.css update.json; do
             test -f "site/$f" || { echo "缺少产物 $f"; exit 1; }
           done
           pages=$(find site -name '*.html' | wc -l)
-          test "$pages" -ge 14
+          test "$pages" -ge 15
           echo "页面数 $pages"
           # 商店页必须真的有可下载的应用，不能是空壳
           n=$(grep -o 'data-apk="' site/store.html | wc -l)
@@ -89,6 +89,30 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/fetch_releases.py --check
+      # update.json 里的 sha256 会被客户端拿去验包，它错了就是「装不上」。
+      # 这条要真下载文件，所以只在每周定时跑（会下 1~2 个最小的包）。
+      # 平常不跑的理由也很实在：为了填一个字段每小时把 60+ MB 全下一遍，不值当。
+      - name: 校验声明里的 sha256 与真实文件一致（每周）
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/fetch_releases.py --verify-digest
+
+  # ---------------------------------------------------------------- 守卫自证
+  # 一个永远不会红的检查，比没有检查更危险：它会让人以为守住了。
+  # 这个 job 把「注入缺陷 → 自检必须变红」这条链跑成 CI 的一部分，
+  # 所以每条守卫都得先证明自己抓得住东西。
+  guards:
+    name: 守卫自证（注入缺陷，自检必须变红）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: python3 scripts/build_site.py
+      - name: Mutation test
+        run: python3 scripts/mutate_test.py
 
   pages-config:
     name: 校验 Pages 用的 CNAME

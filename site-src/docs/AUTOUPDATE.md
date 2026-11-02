@@ -14,6 +14,8 @@
 scripts/fetch_releases.py --write      # 只在这步联网
         ▼
 data/releases.json                     # 入库的快照（真相源）
+  ├── 最新版元数据（版本 / 体积 / 下载地址 / sha256 / versionCode）
+  └── history[] 发版史（每个版本的正文，即 changelog）
         ▼
 scripts/build_site.py                  # 构建过程不联网
         ▼
@@ -28,7 +30,7 @@ CI 会比对两次构建的哈希）。联网只发生在同步这一步，同�
 | 文件 | 什么时候跑 | 干什么 |
 |---|---|---|
 | `sync.yml` | 每小时 17 分、`repository_dispatch`、手点 | 拉线上 Release，数据真变了才提交 |
-| `ci.yml` | 每次 push / PR、每周一 | 构建 + 结构检查 + 外链体检 |
+| `ci.yml` | 每次 push / PR、每周一 | 构建 + 结构检查 + 外链体检 + 守卫自证（`mutate_test.py`）+ 每周校验 sha256 |
 | `deploy.yml` | `data/**` 或 `scripts/**` 有 push、`repository_dispatch` | 构建并发布 Pages |
 
 `sync.yml` 提交后由 `deploy.yml` 完成发布——**先提交快照再发布**，顺序不能反。
@@ -56,17 +58,20 @@ CI 会比对两次构建的哈希）。联网只发生在同步这一步，同�
 配一次即可。**不配也不会坏**——每小时定时兜底会把版本补上，只是延迟最多一小时。
 webhook 会丢、会重装、会忘配，所以定时这一路必须存在，它不是冗余。
 
-## update.json
+## update.json（schema 2）
 
 给程序看的版本清单，`build_site.py` 生成：
 
 ```json
 {
-  "schema": 1,
+  "schema": 2,
+  "site": "ice 工坊",
+  "snapshotAt": "2026-11-02T10:33:08Z",
   "apps": {
     "ModelScopeBrowser": {
       "name": "魔搭模型库",
       "page": "https://ice-wocker.github.io/icesuite/modelscopebrowser.html",
+      "repo": "https://github.com/ice-wocker/ModelScopeBrowser",
       "minAndroid": "7.0",
       "arch": "arm64-v8a",
       "latest": {
@@ -75,7 +80,7 @@ webhook 会丢、会重装、会忘配，所以定时这一路必须存在，它
         "publishedAt": "2026-11-01",
         "size": 8422081,
         "url": "https://github.com/.../ModelScope-Models-2.7.0.apk",
-        "sha256": null
+        "sha256": "c302a0ff3b841f93c4c163476d8da5ccf84deebb72bbfacc7c90ad8240a852bd"
       }
     }
   }
@@ -85,13 +90,38 @@ webhook 会丢、会重装、会忘配，所以定时这一路必须存在，它
 几个刻意的设计：
 
 - `url` 是 APK **直链**，不是 Releases 页面。客户端拿去就能下，不用二次解析 HTML。
+- `snapshotAt` 是这份清单的时间戳。客户端可以据此判断「我拿到的这份有多新」，
+  也可以拿它自己的版本时间和它比。
 - `versionCode` 为 `null` 是正常的：不是每个仓库都会把 `android:versionCode` 写进 Release 正文。
   客户端应回退到 `versionName` 比较。**不要**自己从 `2.7.0` 推算出 `2700`——
   猜错了会让用户以为「已是最新」永远收不到更新。
-- `sha256` 同样允许为 `null`，理由同上：没有就是没有，不做假数据。
+- `sha256` 来自 GitHub 的资产元数据（`digest` 字段），**不是**我们自己下载算的：
+  每小时为了一个字段把 60+ MB 全下一遍不值当。值照抄，缺了就 `null`。
+  真值校验在 `ci.yml` 每周的定时任务里跑一次（`fetch_releases.py --verify-digest`，
+  只下最小的那一两个包）。
 
-`check_site.py` 会逐字段核对 `update.json` 与 `releases.json`，
-并断言 `url` 以 `.apk` 结尾——这个文件的价值全在「准」，错一个字节客户端就会判错。
+`check_site.py` 会逐字段核对 `update.json` 与 `releases.json`，断言 `url` 以 `.apk` 结尾，
+并且**快照没有 sha256 时页面不许出现一个 64 位值**——这是「不许推算」的机器化表达。
+
+## 发版史（history）
+
+同一个请求（`/releases?per_page=10`）本来就会返回多条 Release，所以历史不额外花请求：
+
+```json
+"history": [
+  {"tag": "v2.7.0", "published_at": "2026-11-01", "size": 8422081,
+   "asset": "ModelScope-Models-2.7.0.apk", "url": "...", "sha256": "...",
+   "version_code": null, "body": "**Full Changelog**: https://.../compare/v2.6.0...v2.7.0"}
+]
+```
+
+这份数据渲染成两处：项目详情页的「更新记录」（最近 3 版）与 `changes.html`（全部）。
+页面只排版、不总结——正文原文照登，**没有正文的版本就明说「这一版没有写说明」**。
+把「没写」装成「有内容」比空着更糟。
+
+`check_site.py` 对这两处都有断言，其中一条值得单说：版本顺序的正确性**不能靠页面自证**
+（页面顺序与快照顺序由同一份数据渲染，一起错时检查照样绿）。所以它还用
+GitHub 自动生成的 `compare/<上一版>...<这一版>` 做独立证据去对。
 
 ## 页面上的过期提示
 
@@ -104,7 +134,9 @@ webhook 会丢、会重装、会忘配，所以定时这一路必须存在，它
 
 ```bash
 python3 scripts/fetch_releases.py --check   # 只看快照与线上是否一致（CI 用）
-python3 scripts/fetch_releases.py --write   # 更新快照
+python3 scripts/fetch_releases.py --write   # 更新快照（含发版史）
+python3 scripts/fetch_releases.py --verify-digest  # 校验声明里的 sha256 与真实文件一致（会下 1~2 个小包）
+python3 scripts/mutate_test.py              # 守卫自证：注入缺陷，自检必须变红
 python3 scripts/build_site.py               # 重新生成站点
 python3 scripts/check_site.py               # 自检
 ```

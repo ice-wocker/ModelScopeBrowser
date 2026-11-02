@@ -12,6 +12,7 @@
 """
 import argparse
 import hashlib
+import html
 import json
 import re
 import sys
@@ -52,6 +53,59 @@ def head(url, timeout=20, retries=2):
     return 0, last
 
 
+def _body_is_placeholder(body):
+    """与 build_site.py 里同一判断：GitHub 自动生成的「只有对比链接」正文。
+
+    这里重写一份而不是 import：两个脚本必须能独立运行（站点的「零依赖」也包括
+    「任何一个脚本单独拷走都能跑」）。逻辑只有三行，重复的代价远小于耦合。
+    """
+    t = (body or "").strip()
+    if not t:
+        return True
+    m = re.sub(r"\[([^\]]+)\]\(https?://[^\s)]+\)", " ", t)
+    m = re.sub(r"https?://\S+", " ", m)
+    m = m.replace("**", "").replace("*", "")
+    m = re.sub(r"Full\s*Changelog", "", m, flags=re.I)
+    return not re.sub(r"[\s:：\-]", "", m)
+
+
+def _first_sentence(body):
+    """取正文里第一段够长的话，用来断言「这段正文真的被渲染出来了」。"""
+    for line in (body or "").splitlines():
+        st = re.sub(r"^\s*([-*+]|\d+[.)]|#{1,6}|>)\s*", "", line).strip()
+        st = re.sub(r"^\*\s*", "", st)       # 列表项前缀（- 或 *）也要剥掉
+        st = re.sub(r"\*\*|`", "", st)
+        if len(st) >= 12:
+            return st[:40]
+    return ""
+
+
+def _first_plain(body):
+    """正文第一句的纯文本（去掉行内标记），用于报错信息里指认是哪一句。"""
+    first = _first_sentence(body)
+    return re.sub(r"[*`_]", "", first)
+
+
+def _not_rendered(body, page_html):
+    """正文第一句是否**没有**出现在页面上。
+
+    比对时把页面上的行内标记剥掉再比：原文里的 `**修复死链**` 与代码片段
+    渲染后会变成 <b> / <code>，直接拿原文找当然找不到——那样写出来的检查
+    永远为红（第一版就是这样，两条假阳）。要判断的是「这句话有没有被显示」，
+    不是「HTML 里有没有逐字保留 Markdown 符号」。
+    """
+    first = _first_plain(body)
+    if not first:
+        return False
+    plain_page = re.sub(r"<[^>]+>", "", page_html)
+    plain_page = html.unescape(plain_page)
+    return first not in plain_page
+
+
+def esc(s):
+    return html.escape(str(s), quote=False)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--skip-links", action="store_true", help="只做本地结构检查")
@@ -69,7 +123,8 @@ def main():
 
     # --- 1. 产物结构 ---
     for f in ("index.html", "style.css", "search.json", "CNAME", "404.html", "store.html",
-              "tags.html", "sitemap.xml", "robots.txt", "feed.xml", "icon.svg", "update.json"):
+              "tags.html", "changes.html", "sitemap.xml", "robots.txt", "feed.xml",
+              "icon.svg", "update.json"):
         if not (SITE_DIR / f).exists():
             errors.append(f"缺少产物 {f}")
     if (SITE_DIR / "CNAME").exists():
@@ -178,8 +233,8 @@ def main():
             data = None
         if data:
             apps = data.get("apps") or {}
-            if data.get("schema") != 1:
-                errors.append(f"update.json 的 schema 应为 1，实际 {data.get('schema')}")
+            if data.get("schema") != 2:
+                errors.append(f"update.json 的 schema 应为 2，实际 {data.get('schema')}")
             if set(apps) != set(releases):
                 errors.append("update.json 的应用集合与 releases.json 不一致："
                               f"多 {sorted(set(apps) - set(releases))}，"
@@ -413,7 +468,8 @@ def main():
     if re.search(r'<a [^>]*class="card[ "]', index_src):
         errors.append("首页出现了 <a class=\"card\"> —— 整卡做成链接会把内层标签链接"
                       "提到外层之外，卡片被浏览器拆碎（页面看起来缺标题、多出幽灵方块）")
-    card_blocks = re.findall(r'<div class="card reveal">(.*?)</div></div>', index_src, flags=re.S)
+    card_blocks = re.findall(r'<div class="card reveal" data-key="[^"]*">(.*?)</div></div>',
+                             index_src, flags=re.S)
     n_cards_expected = len(projects)
     if len(card_blocks) != n_cards_expected:
         errors.append(f"首页卡片数 {len(card_blocks)} != 项目数 {n_cards_expected}")
@@ -463,12 +519,185 @@ def main():
             errors.append(f"下载源 {m.get('id')} 的前缀缺结尾斜杠：{px}"
                           "（拼接方式为 prefix + URL，缺斜杠会拼出坏地址）")
 
+    # --- 3.115 更新记录：页面上的版本史必须是快照的投影 ---
+    # 这一整页的价值在于「原文照登」。所以检查的不是「有没有内容」，
+    # 而是「页面上出现的版本集合」与 releases.json 里的历史**完全相同**——
+    # 多一个版本（凭空长出来）和少一个版本（渲染时被过滤掉）都是假话。
+    changes = (SITE_DIR / "changes.html").read_text(encoding="utf-8") \
+        if (SITE_DIR / "changes.html").exists() else ""
+    if changes:
+        for repo, rel in releases.items():
+            pid = None
+            for p in projects:
+                if p["repo"] == repo:
+                    pid = p["id"]
+                    break
+            if not pid:
+                continue
+            seg = re.search(rf'<section class="applog" id="{pid}">(.*?)</section>',
+                            changes, flags=re.S)
+            if not seg:
+                errors.append(f"changes.html 里没有 {repo} 的更新记录区块（id={pid}）")
+                continue
+            shown = re.findall(r'<li class="vitem"[^>]*><div class="vhead"><b>([^<]+)</b>', seg.group(1))
+            hist = rel.get("history") or []
+            want = [h["tag"] for h in hist] or [rel["tag"]]
+            # 顺序必须与原样一致：倒过来读，用户会以为「最新版」是页面上第一条，
+            # 而它其实是三年前那个。集合对、顺序错，比少一条更误导。
+            if shown != want:
+                errors.append(f"changes.html/{repo} 版本顺序或集合与快照不一致："
+                              f"页面 {shown} vs 快照 {want}")
+            for h in hist:
+                if h.get("sha256") and h is hist[0]:
+                    continue
+                # 每个版本的下载地址必须原样出现在页面上（指向该版本的资产）
+                if h.get("url") and h["url"] not in seg.group(1):
+                    errors.append(f"changes.html/{repo} 缺少 {h['tag']} 的下载地址")
+            # --- 版本顺序的独立证据：详情页正文里写着「上一版是谁」---
+            # 只靠「页面顺序 == 快照顺序」是自证：两边都由同一份历史渲染，
+            # 一起排错时这条检查照样绿。所以再多一条不依赖快照顺序的判据：
+            # GitHub 自动生成的正文里明明白白写着 `compare/<上一版>...<这一版>`，
+            # 拿它去对「页面上排在它后面的那一版」，对不上就是顺序真的错了。
+            # KayaGo 的正文里是手写的本地 compare 链接，格式不同，这里只认
+            # 这种标准写法，认不出就跳过——宁可漏，也不误报。
+            cur_page = (SITE_DIR / f"{pid}.html").read_text(encoding="utf-8")
+            dv = re.findall(r'<b>([^<]+)</b></span>', cur_page)
+            for i2, h in enumerate(hist):
+                # 版本号里本来就有点（v2.6.0），所以不能把 . 排除在字符类外——
+                # 那样写永远匹配不上，这条检查会变成永不触发的橡皮图章。
+                m = re.search(r"compare/(v[0-9][0-9A-Za-z._-]*)\.\.\.(v[0-9][0-9A-Za-z._-]*)",
+                              h.get("body") or "")
+                if not m or m.group(2) != h["tag"]:
+                    continue
+                if i2 + 1 >= len(hist):
+                    continue
+                if m.group(1) != hist[i2 + 1]["tag"]:
+                    errors.append(
+                        f"{repo} 的版本顺序可能错了：{h['tag']} 的正文写着自己接在 "
+                        f"{m.group(1)} 之后，但快照里它后面是 {hist[i2 + 1]['tag']}")
+            # 有正文的版本必须把正文渲染出来：抓下来却不显示，等于白抓
+            for h in hist:
+                if not _body_is_placeholder(h.get("body")):
+                    continue
+            latest = hist[0] if hist else None
+            if latest and not _body_is_placeholder(latest.get("body")):
+                # 正文里的第一句必须出现在页面上（转义后比较，避免 HTML 差异）
+                if _not_rendered(latest.get("body") or "", seg.group(1)):
+                    first = _first_plain(latest.get("body") or "")
+                    errors.append(f"changes.html/{repo} 的 {latest['tag']} 正文没有渲染出来："
+                                  f"页面上找不到「{first[:24]}…」")
+    else:
+        errors.append("缺少产物 changes.html（更新记录页）")
+
+    # 详情页也要有更新记录入口，否则用户从搜索落地后不知道还有一整部历史
+    for p in projects:
+        f = SITE_DIR / f"{p['id']}.html"
+        if not f.exists():
+            continue
+        body = f.read_text(encoding="utf-8")
+        if 'id="changes"' not in body:
+            errors.append(f"{p['id']}.html 没有更新记录区块（id=changes）")
+
+    # --- 3.116 校验值必须与快照一致，且不许「猜」出来 ---
+    # update.json 里的 sha256 会被客户端拿去验包：它错了就是「装不上 / 验不过」。
+    # 所以两件事都要钉：①有值就必须与快照逐字节相同；②快照没有值时必须写 null，
+    # 不能出现任何 64 位十六进制串（那意味着有人从别处「补」了一个值）。
+    up_file = SITE_DIR / "update.json"
+    if up_file.exists():
+        try:
+            up_data = json.loads(up_file.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            up_data = None
+        if up_data:
+            for repo, ent in (up_data.get("apps") or {}).items():
+                rel = releases.get(repo)
+                if not rel:
+                    continue
+                got = (ent.get("latest") or {}).get("sha256")
+                want = rel.get("sha256")
+                if want and got != want:
+                    errors.append(f"update.json/{repo} 的 sha256 与快照不一致：{got} vs {want}")
+                if not want and got is not None:
+                    errors.append(f"update.json/{repo} 的 sha256 快照里没有，页面却写了 {got}——"
+                                  "校验值不许推算")
+                if got is not None and not re.fullmatch(r"[0-9a-f]{64}", str(got)):
+                    errors.append(f"update.json/{repo} 的 sha256 不是 64 位小写十六进制：{got}")
+            if "snapshotAt" not in up_data:
+                errors.append("update.json 缺少 snapshotAt（客户端无法判断这份清单有多新）")
+    # 详情页展示的校验值同理：有则一字不差，无则不许出现替代值
+    for p in projects:
+        f = SITE_DIR / f"{p['id']}.html"
+        if not f.exists():
+            continue
+        body = f.read_text(encoding="utf-8")
+        sha = (releases.get(p["repo"]) or {}).get("sha256")
+        if sha:
+            box = re.search(r'<h2 id="verify">.*?(?=<h2|$)', body, flags=re.S)
+            if not box or sha not in box.group(0):
+                errors.append(f"{p['id']}.html 的「校验安装包」区块里没有 sha256"
+                              "（用户无法校验下载的包）")
+        else:
+            box = re.search(r'<h2 id="verify">.*?(?=<h2|<div class="pager")', body, flags=re.S)
+            if box and re.search(r"\b[0-9a-f]{64}\b", box.group(0)):
+                errors.append(f"{p['id']}.html 的快照里没有 sha256，页面却显示了一个 64 位值——"
+                              "这是编出来的校验值，比没有更糟")
+
+    # --- 3.117 首页筛选：按钮、标签键、脚本三者必须对得上 ---
+    # 首页筛选坏了的表现很阴：按钮在、样式对，点了没反应或者筛出空列表。
+    # 所以这里断言：①每个分组都有一个 data-filter 按钮；②每张卡片都带 data-key；
+    # ③脚本真的存在且监听的是 #filterbar。
+    if index_src:
+        for slug, label, _ in ns.get("GROUPS", []):
+            if not any(p["group"] == slug for p in projects):
+                continue
+            if f'data-filter="group:{slug}"' not in index_src:
+                errors.append(f"首页缺少分组筛选按钮：{slug}")
+        if index_src.count('data-key="') != len(projects):
+            errors.append(f"首页带 data-key 的卡片 {index_src.count('data-key=')} 张 "
+                          f"!= 项目数 {len(projects)}（筛选会漏或筛出多余项）")
+        for t in all_tags:
+            if f'data-filter="tag:{t}"' not in index_src:
+                # 只有前 N 个标签会出现在首页标签行，其余在 tags.html——
+                # 这里只要求「出现在首页的标签按钮」都带 data-filter，见下一条。
+                continue
+        if not re.search(r"getElementById\('filterbar'\)", index_src):
+            errors.append("首页没有筛选脚本（#filterbar 没有被监听）——按钮点了不会有反应")
+        # 按钮的 data-filter 必须与卡片 data-key 的取值域一致：
+        # 拼错一个字符，点下去就是「0 个项目」，而页面上只会看到一片空白。
+        keys = set()
+        for m in re.findall(r'data-key="([^"]*)"', index_src):
+            # data-key 里既有单个词的标签（Agent），也有带空格的（OpenAI API）。
+            # 逐个 split() 会把后者拆成 "t:OpenAI" 与 "API"，永远对不上——
+            # 所以按 " t:" / " g:" 切分，而不是按空白。
+            for tok in re.split(r"\s+(?=[gt]:)", m.strip()):
+                keys.add(tok.strip())
+        for val in re.findall(r'data-filter="([^"]*)"', index_src):
+            if not val:
+                continue
+            # 「全部」按钮必须是空 data-filter。写成 "group:" 这类空键会切出半个
+            # 键值，表现为「点全部 → 0 个项目」——而页面上只是变空白，不会报错。
+            kind, _, name = val.partition(":")
+            if not name:
+                errors.append(f"首页筛选按钮 data-filter=\"{val}\" 是空键——"
+                              "「全部」应该用空字符串，否则点下去会筛出 0 个项目")
+                continue
+            tok = f"g:{name}" if kind == "group" else f"t:{name}"
+            if tok not in keys:
+                errors.append(f"首页筛选按钮 {val} 在卡片 data-key 里找不到对应项——"
+                              "点下去会是 0 个项目")
+
     # --- 3.12 sitemap / robots / feed 必须与产物一致 ---
     sm = (SITE_DIR / "sitemap.xml").read_text(encoding="utf-8") if (SITE_DIR / "sitemap.xml").exists() else ""
     for p in projects:
         url = f"{p['id']}.html"
         if f"/{url}<" not in sm:
             errors.append(f"sitemap.xml 缺少 {url}")
+    # 站点的「顶层页面」也要在 sitemap 里。只查项目页是不够的：
+    # 新增一页（比如更新记录）忘了登记，搜索引擎就永远不知道它存在，
+    # 而页面上一切正常、构建也是绿的。
+    for name in ("store.html", "changes.html", "tags.html"):
+        if f"/{name}<" not in sm:
+            errors.append(f"sitemap.xml 缺少 {name}")
     robots = (SITE_DIR / "robots.txt").read_text(encoding="utf-8") if (SITE_DIR / "robots.txt").exists() else ""
     if "Sitemap:" not in robots:
         errors.append("robots.txt 没有声明 Sitemap")

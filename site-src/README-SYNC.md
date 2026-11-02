@@ -4,9 +4,10 @@
 
 ```bash
 cd site-src
-python3 scripts/build_site.py      # 生成 site/
+python3 scripts/build_site.py      # 生成 site/（含 update.json / changes.html）
 python3 scripts/check_site.py      # 自检（结构 / 站内链接 / update.json 一致性 / 外链）
 python3 scripts/fetch_releases.py --check   # 快照是否落后于线上 Release（需联网）
+python3 scripts/mutate_test.py              # 守卫自证：注入缺陷，自检必须变红
 ```
 
 零第三方依赖，只用 Python 标准库。文档见 `site-src/docs/`。
