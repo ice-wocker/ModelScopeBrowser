@@ -7,6 +7,7 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ServiceInfo;
 import android.os.Build;
 import android.os.IBinder;
 
@@ -70,7 +71,14 @@ public class DownloadService extends Service {
         final String text = intent == null ? null : intent.getStringExtra(EXTRA_TEXT);
         final int pct = intent == null ? -1 : intent.getIntExtra(EXTRA_PCT, -1);
         try {
-            startForeground(NOTIF_ID, build(text, pct));
+            // Android 10+ 必须声明前台服务类型：清单里已写 dataSync，这里也要显式传，
+            // 否则 Android 14 上 startForeground 会抛 MissingForegroundServiceTypeException，
+            // 下载退化为后台普通线程，切到后台随时可能被系统回收。
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(NOTIF_ID, build(text, pct), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+            } else {
+                startForeground(NOTIF_ID, build(text, pct));
+            }
         } catch (Throwable ignored) {
             stopSelf();     // 起不来就退出，避免 5s 内未 startForeground 被系统判定异常
         }

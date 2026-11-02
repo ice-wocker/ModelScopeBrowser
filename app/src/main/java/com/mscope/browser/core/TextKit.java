@@ -27,7 +27,9 @@ public final class TextKit {
         if (s == null) return "";
         byte[] bytes = s.getBytes(StandardCharsets.UTF_8);
         if (bytes.length <= maxBytes) return s;
-        int limit = Math.max(0, maxBytes);
+        // 注意 cut 必须先夹到合法下标：maxBytes 等于或大于实际长度时这里不会进来，
+        // 但一旦传进来的上限比数组还大就会 ArrayIndexOutOfBounds。
+        int limit = Math.min(Math.max(0, maxBytes), bytes.length);
         // 从上限往前退，直到不落在多字节序列中间
         int cut = limit;
         while (cut > 0 && (bytes[cut] & 0xC0) == 0x80) cut--;

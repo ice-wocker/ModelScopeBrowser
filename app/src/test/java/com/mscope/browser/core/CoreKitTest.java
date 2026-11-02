@@ -474,4 +474,82 @@ public class CoreKitTest {
         sb.append("\n# B\n");
         assertTrue(MarkdownOutline.worthOutline(sb.toString()));
     }
+
+    /* ------------------------------------------------------- UTF-8 安全截断 */
+
+    @Test
+    public void trimUtf8_neverSplitsSurrogatePair() {
+        // emoji 是 4 字节序列：上限落在它中间时必须整体丢掉，不能留下半个代理项。
+        String s = "ab😀cd";
+        String cut = TextKit.trimUtf8(s, 4);
+        assertEquals("ab", cut);
+        assertEquals("ab", TextKit.trimUtf8("ab😀cd", 5));
+    }
+
+    @Test
+    public void trimUtf8_keepsStringWhenUnderLimit() {
+        assertEquals("你好", TextKit.trimUtf8("你好", 100));
+        assertEquals("", TextKit.trimUtf8(null, 10));
+    }
+
+    @Test
+    public void trimUtf8_limitBeyondLengthIsSafe() {
+        // 上限比实际字节数还大时不能越界（旧实现会 ArrayIndexOutOfBounds）。
+        assertEquals("ok", TextKit.trimUtf8("ok", 999));
+        assertEquals("ok", TextKit.trimUtf8("ok", Integer.MAX_VALUE));
+    }
+
+    /* ---------------------------------------------------------- 存储体检 */
+
+    @Test
+    public void audit_flagsGhostOrphanAndEmpty() {
+        List<StorageGuard.Entry> index = new ArrayList<>(Arrays.asList(
+                new StorageGuard.Entry("/m/a.gguf", 100),
+                new StorageGuard.Entry("/m/b.gguf", 200),
+                new StorageGuard.Entry("/m/c.gguf", 0)));
+        List<StorageGuard.Entry> disk = new ArrayList<>(Arrays.asList(
+                new StorageGuard.Entry("/m/a.gguf", 100),
+                new StorageGuard.Entry("/m/c.gguf", 0),
+                new StorageGuard.Entry("/m/orphan.gguf", 555)));
+        List<StorageGuard.Finding> found = StorageGuard.audit(index, disk);
+
+        boolean ghost = false, orphan = false, empty = false;
+        for (StorageGuard.Finding f : found) {
+            if (f.kind == StorageGuard.Kind.GHOST_ENTRY && f.path.endsWith("b.gguf")) ghost = true;
+            if (f.kind == StorageGuard.Kind.ORPHAN_FILE && f.path.endsWith("orphan.gguf")) orphan = true;
+            if (f.kind == StorageGuard.Kind.EMPTY_FILE && f.path.endsWith("c.gguf")) empty = true;
+        }
+        assertTrue("缺文件的记录要报出来", ghost);
+        assertTrue("没索引的文件要报出来", orphan);
+        assertTrue("空壳文件要报出来", empty);
+    }
+
+    @Test
+    public void audit_cleanLibraryReportsNothing() {
+        List<StorageGuard.Entry> index = new ArrayList<>(Arrays.asList(
+                new StorageGuard.Entry("/m/a.gguf", 100)));
+        List<StorageGuard.Entry> disk = new ArrayList<>(Arrays.asList(
+                new StorageGuard.Entry("/m/a.gguf", 100)));
+        assertTrue(StorageGuard.audit(index, disk).isEmpty());
+    }
+
+    /* ------------------------------------------------------------- 参数收敛 */
+
+    @Test
+    public void validators_clampsOutputToContext() {
+        Lang.setChinese(true);
+        // 输出上限不能吃掉整个上下文，否则连提示词都放不下
+        Validators.Sampling sp = new Validators.Sampling(8192, 0.7f, 0.9f, 40, 2048);
+        String note = Validators.normalize(sp);
+        assertTrue("压到上下文的 3/4 以内", sp.maxTokens <= 2048 * 3 / 4);
+        assertTrue("要说明为什么被改", note.contains("3/4"));
+    }
+
+    @Test
+    public void validators_greedyNeedsTopK() {
+        // temp=0 + top-k=0 会让采样分布退化，必须至少留 1
+        Validators.Sampling sp = new Validators.Sampling(256, 0f, 1f, 0, 4096);
+        Validators.normalize(sp, false);
+        assertEquals(1, sp.topK);
+    }
 }

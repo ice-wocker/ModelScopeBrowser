@@ -1,12 +1,11 @@
 package com.mscope.browser.agent;
 
+import com.mscope.browser.core.HttpKit;
 import com.mscope.browser.core.Validators;
 import com.mscope.browser.i18n.Lang;
 
-import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLDecoder;
@@ -127,28 +126,34 @@ public class WebSearch {
 
     /* ------------------------------------------------------------------ 实现 */
 
+    /** 这两个工具跑在智能体线程上，而「停止」只能到下一次回调才生效，所以超时必须短。 */
+    private static final int CONNECT_TIMEOUT_MS = 8000;
+    private static final int READ_TIMEOUT_MS = 12000;
+    /** 单个网页最多读多少字节（搜索结果页通常 100~400KB）。 */
+    private static final int MAX_HTML_BYTES = 3 * 1024 * 1024;
+
     private static String fetch(String url) throws IOException {
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
-        c.setRequestMethod("GET");
-        c.setConnectTimeout(15000);
-        c.setReadTimeout(20000);
-        c.setInstanceFollowRedirects(true);
-        c.setRequestProperty("User-Agent", UA);
-        c.setRequestProperty("Accept", "text/html,application/xhtml+xml");
-        c.setRequestProperty("Accept-Language", Lang.zh()
-                ? "zh-CN,zh;q=0.9,en;q=0.8"
-                : "en-US,en;q=0.9");
-        int code = c.getResponseCode();
-        InputStream is = code >= 400 ? c.getErrorStream() : c.getInputStream();
-        if (is == null) throw new IOException("HTTP " + code);
-        StringBuilder sb = new StringBuilder();
-        try (BufferedReader br = new BufferedReader(new InputStreamReader(is, "UTF-8"))) {
-            String line;
-            int guard = 0;
-            while ((line = br.readLine()) != null && guard++ < 4000) sb.append(line).append('\n');
+        try {
+            c.setRequestMethod("GET");
+            c.setConnectTimeout(CONNECT_TIMEOUT_MS);
+            c.setReadTimeout(READ_TIMEOUT_MS);
+            c.setInstanceFollowRedirects(true);
+            c.setRequestProperty("User-Agent", UA);
+            c.setRequestProperty("Accept", "text/html,application/xhtml+xml");
+            c.setRequestProperty("Accept-Language", Lang.zh()
+                    ? "zh-CN,zh;q=0.9,en;q=0.8"
+                    : "en-US,en;q=0.9");
+            int code = c.getResponseCode();
+            InputStream is = code >= 400 ? c.getErrorStream() : c.getInputStream();
+            if (is == null) throw new IOException("HTTP " + code);
+            // 直接按字节限长读：原来的按行循环 + guard 只挡行数，一行几 MB 的压缩页照样能吃满内存。
+            String html = HttpKit.readLimited(is, MAX_HTML_BYTES);
+            if (code >= 400) throw new IOException("HTTP " + code);
+            return html;
+        } finally {
+            c.disconnect();
         }
-        if (code >= 400) throw new IOException("HTTP " + code);
-        return sb.toString();
     }
 
     private static List<Result> parseDdg(String html, int limit) {
