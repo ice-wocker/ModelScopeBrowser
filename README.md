@@ -14,7 +14,7 @@ the model can run shell commands, search the web and work with files.*
 [![Android](https://img.shields.io/badge/Android-7.0%2B%20(API%2024)-3DDC84?logo=android&logoColor=white)](#)
 [![llama.cpp](https://img.shields.io/badge/llama.cpp-b11205-000000)](#)
 [![推理](https://img.shields.io/badge/%E6%8E%A8%E7%90%86-%E7%BA%AFCPU%20%C2%B7%20%E5%A4%9A%E6%A1%A3%E6%8C%87%E4%BB%A4%E9%9B%86-4B5563)](#)
-[![Tests](https://img.shields.io/badge/tests-110%20passed-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-157%20passed-brightgreen)](#)
 
 [**English**](README.en.md) · [下载安装](#下载安装) · [功能](#功能) · [怎么用](#怎么用) · [技术亮点](#技术亮点) · [文档](#文档) · [构建](#构建) · [作者](#作者)
 
@@ -62,16 +62,23 @@ the model can run shell commands, search the web and work with files.*
 </td></tr>
 <tr><td><b>智能体</b></td><td>
 
-模型输出工具调用 → App 真实执行 → 结果回灌 → 继续推理，**最多 8 步**，可随时停止。可用工具：
+模型输出工具调用 → App 真实执行 → 结果回灌 → 继续推理，**最多 8 步**，可随时停止。
+工具共 **57 个**，全部来自一张注册表（`agent/ToolRegistry`）：模型看到的说明、白名单校验、危险动作判定
+三处同源，不会出现「能调用但模型不知道」或「危险动作没确认」。
 
-| 工具 | 作用 |
-|---|---|
-| `shell` | 在手机**真终端**执行命令（`/system/bin/sh`，工作目录 = 工作区） |
-| `web_search` / `fetch_url` | 联网搜索 / 抓取网页正文（拒绝本机与内网地址） |
-| `read_file` / `write_file` / `list_files` / `delete_file` | 读写工作区文件（原子写，路径强制收敛） |
-| `open_preview` | 在内置 WebView 打开工作区 HTML |
+| 分组 | 工具 | 亮点 |
+|---|---|---|
+| 文件 | `list_files` `read_file` `write_file` `append_file` `apply_patch` `delete_file` `move_file` `copy_file` `mkdir` `file_stat` `file_tree` `grep` `find_files` `checksum` `zip` `unzip` | `apply_patch` 只给「找什么 / 换成什么」，模型不必重写全文（3B 模型重写 300 行必丢内容）；找不到原文时**一个字都不改**，把文件里最像的一段回给它自己纠错 |
+| 文本 | `replace_text` `extract_links` `extract_emails` `extract_code` `convert_table` `text_stats` `diff` `redact` `outline` `summarize_text` `json_query` `json_format` | `summarize_text` 是抽取式摘要（BM25 打分 + 位置加权），**不调用模型**，0.5B 也能用；`redact` 抹密钥/Token/私钥 |
+| 计算与时间 | `calc` `now` `date_math` `random` `hash_text` `base64` `url_codec` `unit_convert` | `calc` 是自写递归下降求值器（不用 `javax.script`，Android 上没有 Nashorn），支持 `%`、`^`、全角数字；`date_math` 按日历天推进，不会被时区推偏一天 |
+| 设备 | `device_info` `storage_report` `notify` `clipboard` `share` `open_url` `open_preview` | 机型 / 内存 / 空间 / 电量作为事实回灌，模型给建议时不用猜 |
+| 终端 | `shell` | 真 `/system/bin/sh`，执行前过 `PathGuard` 两道闸：明显不可逆的命令直接拒（`rm -rf /`、`dd of=/dev/…`、fork 炸弹），递归删除 / 通配符 / 管道进 shell 则警告 |
+| 联网 | `web_search` `fetch_url` `download_file` `http_request` | 只许公网 http/https；重定向**手动跟随并复查每一跳**（自动跟随会绕过第一跳的地址检查） |
+| 智能体 | `memory_add` `memory_list` `memory_forget` `todo_add` `todo_done` `todo_list` `todo_clear` `skill_search` `skill_use` `skill_save` | 待办板把计划外化成 `/todo.json`，长任务不再「跑到第四步忘了第一步」；技能库 7 条内置套路，BM25 检索后只把命中的一条正文塞进上下文 |
+| 外部模型 | `llm_ask` | 可选 OpenAI 兼容通道。端侧 3B 做决定，难的子问题外包出去；Key 只存本机、不进对话历史 |
 
-`shell`、`write_file`、`delete_file` 执行前**弹窗确认**，也可选「本会话都允许」。
+写操作与设备动作（`shell`、`write_file`、`apply_patch`、`delete_file`、`notify`、`clipboard`、`share` 等）执行前**弹窗确认**，也可选「本会话都允许」。
+点状态条上的「能力」按钮按组开关（文件 / 文本 / 计算 / 设备 / 联网 / 终端 / 智能体 / 外部模型），关掉的组连模型都看不见。
 
 </td></tr>
 <tr><td><b>工作区</b></td><td>

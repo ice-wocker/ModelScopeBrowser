@@ -252,7 +252,7 @@ EOF
 grep versionCode app/build.gradle
 
 # 2. 打 tag（必须 v 开头，CI 只认这个）
-git tag v2.6.0
+git tag v2.7.0
 git push origin v2.6.0
 ```
 

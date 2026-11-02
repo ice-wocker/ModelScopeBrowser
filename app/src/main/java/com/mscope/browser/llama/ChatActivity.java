@@ -32,6 +32,11 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.mscope.browser.R;
 import com.mscope.browser.Ui;
 import com.mscope.browser.agent.AgentTools;
+import com.mscope.browser.agent.CapabilityDialog;
+import com.mscope.browser.agent.ExternalModel;
+import com.mscope.browser.agent.SkillLibrary;
+import com.mscope.browser.agent.ToolHost;
+import com.mscope.browser.agent.ToolSpec;
 import com.mscope.browser.agent.HtmlPreviewActivity;
 import com.mscope.browser.agent.Shell;
 import com.mscope.browser.agent.TerminalActivity;
@@ -84,6 +89,8 @@ public class ChatActivity extends BaseActivity {
     private static final String KEY_SYS = "system";
     private static final String KEY_AGENT = "agent_mode";
     private static final String KEY_TOOL_WEB = "tool_web";
+    /** 工具组开关（缺省时按 KEY_TOOL_WEB / 文件 / 终端 的老语义推导，保证升级后行为不突变）。 */
+    private static final String KEY_TOOL_GROUPS = "tool_groups";
     /**
      * 默认系统提示词直接走 {@link PromptTemplate}，不再各写一份。
      *
@@ -194,14 +201,7 @@ public class ChatActivity extends BaseActivity {
         store = new ChatStore(this);
         workspace = new Workspace(this);
         shell = new Shell(workspace);
-        agentTools = new AgentTools(workspace, shell,
-                rel -> runOnUiThread(() -> {
-                    try {
-                        HtmlPreviewActivity.start(this, rel);
-                    } catch (Exception e) {
-                        Toast.makeText(this, String.valueOf(e.getMessage()), Toast.LENGTH_SHORT).show();
-                    }
-                }));
+        agentTools = new AgentTools(workspace, shell, buildToolHost(), this, externalModel(), toolGroups());
         prefs = getSharedPreferences(PREF, MODE_PRIVATE);
         nCtx = prefs.getInt(KEY_CTX, DEFAULT_CTX);
         // 设备内存先算一遍：这是「默认值是否放得下」的唯一依据。
@@ -410,12 +410,177 @@ public class ChatActivity extends BaseActivity {
         }
     }
 
+    /* -------------------------------------------------------------- 工具宿主 */
+
+    /**
+     * 把界面能力包成 {@link ToolHost} 给工具层用。
+     *
+     * <p>每一个动作都在主线程执行：通知、剪贴板、分享、预览都要碰 UI 或系统服务，
+     * 而工具调用发生在后台线程。委托给 runOnUiThread 之后，工具层就完全不需要知道线程模型。
+     */
+    private ToolHost buildToolHost() {
+        final Context app = getApplicationContext();
+        return new ToolHost() {
+            @Override
+            public void openPreview(String relPath) {
+                runOnUiThread(() -> {
+                    try {
+                        HtmlPreviewActivity.start(ChatActivity.this, relPath);
+                    } catch (Exception e) {
+                        Toast.makeText(ChatActivity.this, String.valueOf(e.getMessage()), Toast.LENGTH_SHORT).show();
+                    }
+                });
+            }
+
+            @Override
+            public boolean notify(String title, String text) {
+                return com.mscope.browser.agent.Notifications.post(app, title, text);
+            }
+
+            @Override
+            public boolean setClipboard(String text) {
+                final boolean[] ok = {false};
+                runOnUiThreadSync(() -> ok[0] = newHost(app, null).setClipboard(text));
+                return ok[0];
+            }
+
+            @Override
+            public String getClipboard() {
+                final String[] out = {""};
+                runOnUiThreadSync(() -> out[0] = newHost(app, null).getClipboard());
+                return out[0];
+            }
+
+            @Override
+            public boolean openUrl(String url) {
+                final boolean[] ok = {false};
+                runOnUiThreadSync(() -> ok[0] = newHost(app, null).openUrl(url));
+                return ok[0];
+            }
+
+            @Override
+            public boolean shareFile(java.io.File f, String mime) {
+                final boolean[] ok = {false};
+                runOnUiThreadSync(() -> ok[0] = newHost(app, null).shareFile(f, mime));
+                return ok[0];
+            }
+        };
+    }
+
+    private static ToolHost newHost(Context app, ToolHost.FromContext.PreviewSink preview) {
+        return new ToolHost.FromContext(app, preview);
+    }
+
+    /** 在主线程跑一段代码并等它结束；已经站在主线程时直接执行，避免死锁。 */
+    private void runOnUiThreadSync(Runnable r) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            r.run();
+            return;
+        }
+        final CountDownLatch latch = new CountDownLatch(1);
+        runOnUiThread(() -> {
+            try {
+                r.run();
+            } finally {
+                latch.countDown();
+            }
+        });
+        try {
+            latch.await(3, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /* -------------------------------------------------------------- 外部模型 */
+
+    private static final String PREF_EXT = "external_model";
+    private static final String KEY_EXT_BASE = "base";
+    private static final String KEY_EXT_KEY = "key";
+    private static final String KEY_EXT_MODEL = "model";
+
+    private ExternalModel externalModel() {
+        ExternalModel.Config cfg = new ExternalModel.Config();
+        android.content.SharedPreferences p = getSharedPreferences(PREF_EXT, MODE_PRIVATE);
+        cfg.base = nz(p.getString(KEY_EXT_BASE, ""));
+        cfg.key = nz(p.getString(KEY_EXT_KEY, ""));
+        cfg.model = nz(p.getString(KEY_EXT_MODEL, ""));
+        return new ExternalModel(cfg);
+    }
+
+    private void showExternalModelSettings() {
+        android.content.SharedPreferences p = getSharedPreferences(PREF_EXT, MODE_PRIVATE);
+        java.util.Map<String, String> cur = new java.util.LinkedHashMap<>();
+        cur.put("base", nz(p.getString(KEY_EXT_BASE, "")));
+        cur.put("key", nz(p.getString(KEY_EXT_KEY, "")));
+        cur.put("model", nz(p.getString(KEY_EXT_MODEL, "")));
+        CapabilityDialog.showExternalModel(this, cur, values -> {
+            p.edit()
+                    .putString(KEY_EXT_BASE, nz(values.get("base")))
+                    .putString(KEY_EXT_KEY, nz(values.get("key")))
+                    .putString(KEY_EXT_MODEL, nz(values.get("model")))
+                    .apply();
+            agentTools = new AgentTools(workspace, shell, buildToolHost(), this, externalModel(), toolGroups());
+            Toast.makeText(this, R.string.ext_model_saved, Toast.LENGTH_SHORT).show();
+        });
+    }
+
     /* -------------------------------------------------------------- 能力开关 */
 
-    private void toggleWeb() {
-        toolWeb = !toolWeb;
+    /** 从 prefs 还原工具组；没有历史配置时按老的两个开关推导，升级后行为不突变。 */
+    private java.util.Set<ToolSpec.Group> toolGroups() {
+        java.util.Set<ToolSpec.Group> set = java.util.EnumSet.noneOf(ToolSpec.Group.class);
+        String saved = prefs.getString(KEY_TOOL_GROUPS, null);
+        if (saved != null) {
+            for (String name : saved.split(",")) {
+                String t = name.trim();
+                if (t.isEmpty()) continue;
+                try {
+                    set.add(ToolSpec.Group.valueOf(t));
+                } catch (IllegalArgumentException ignored) {
+                    // 旧版本留下的键，忽略
+                }
+            }
+            return set;
+        }
+        set.add(ToolSpec.Group.FILE);
+        set.add(ToolSpec.Group.TEXT);
+        set.add(ToolSpec.Group.CALC);
+        set.add(ToolSpec.Group.AGENT);
+        set.add(ToolSpec.Group.DEVICE);
+        if (toolWeb) set.add(ToolSpec.Group.WEB);
+        return set;
+    }
+
+    private void saveToolGroups(java.util.Set<ToolSpec.Group> set) {
+        StringBuilder sb = new StringBuilder();
+        for (ToolSpec.Group g : set) {
+            if (sb.length() > 0) sb.append(',');
+            sb.append(g.name());
+        }
+        prefs.edit().putString(KEY_TOOL_GROUPS, sb.toString()).apply();
+        // 老开关跟着走，免得「/web off」和面板开关互相打架
+        toolWeb = set.contains(ToolSpec.Group.WEB);
         prefs.edit().putBoolean(KEY_TOOL_WEB, toolWeb).apply();
+        agentTools = new AgentTools(workspace, shell, buildToolHost(), this, externalModel(), toolGroups());
         updateChipWeb();
+    }
+
+    private void showCapabilities() {
+        CapabilityDialog.show(this, toolGroups(), groups -> {
+            saveToolGroups(groups);
+            Toast.makeText(this, CapabilityDialog.summaryText(this, groups), Toast.LENGTH_SHORT).show();
+        });
+    }
+
+    private void toggleWeb() {
+        java.util.Set<ToolSpec.Group> set = toolGroups();
+        if (set.contains(ToolSpec.Group.WEB)) {
+            set.remove(ToolSpec.Group.WEB);
+        } else {
+            set.add(ToolSpec.Group.WEB);
+        }
+        saveToolGroups(set);
         Toast.makeText(this, toolWeb ? R.string.chat_web_on : R.string.chat_web_off,
                 Toast.LENGTH_SHORT).show();
     }
@@ -652,9 +817,10 @@ public class ChatActivity extends BaseActivity {
         // 免得「提示词说的工具」和「真的能执行的工具」两套东西对不上。
         boolean compact = PromptTemplate.wantsCompactTools(model == null ? "" : model.displayName);
         String tools = agentMode
-                ? PromptTemplate.toolSection(AgentTools.describe(toolWeb, true, true), compact)
+                ? PromptTemplate.toolSection(agentTools.describeEnabled(compact), compact)
                 : null;
-        sb.append(PromptTemplate.compose(base, preset, tools, null));
+        // 记忆（长期偏好）每次请求都带上：条数已在 PromptTemplate 里裁过，不会吃掉上下文
+        sb.append(PromptTemplate.compose(base, preset, tools, agentTools.memory().forPrompt()));
         if (!TextUtils.isEmpty(pendingWebContext)) {
             sb.append("\n\n").append(getString(R.string.chat_web_context))
               .append('\n').append(pendingWebContext);
@@ -968,14 +1134,57 @@ public class ChatActivity extends BaseActivity {
             case "files":
                 openWorkspace();
                 return;
-            case "web": {
-                if ("on".equalsIgnoreCase(rest) || "off".equalsIgnoreCase(rest)) {
-                    toolWeb = "on".equalsIgnoreCase(rest);
+            case "caps":
+                showCapabilities();
+                return;
+            case "ext":
+                showExternalModelSettings();
+                return;
+            case "memo": {
+                if (rest.isEmpty()) {
+                    addTool(getString(R.string.chat_tool_info), "info", agentTools.memory().render(Lang.zh()));
+                } else if (rest.startsWith("forget ")) {
+                    int idx = Validators.parseInt(rest.substring(7).trim(), 0);
+                    agentTools.memory().remove(idx);
+                    addTool(getString(R.string.chat_tool_info), "info", agentTools.memory().render(Lang.zh()));
                 } else {
-                    toolWeb = !toolWeb;
+                    agentTools.memory().add(rest);
+                    addTool(getString(R.string.chat_tool_info), "info", agentTools.memory().render(Lang.zh()));
                 }
-                prefs.edit().putBoolean(KEY_TOOL_WEB, toolWeb).apply();
-                updateChipWeb();
+                return;
+            }
+            case "todo": {
+                if (rest.isEmpty() || "list".equalsIgnoreCase(rest)) {
+                    addTool(getString(R.string.chat_tool_info), "info", agentTools.todo().render(Lang.zh()));
+                } else if ("clear".equalsIgnoreCase(rest)) {
+                    agentTools.todo().clear();
+                    addTool(getString(R.string.chat_tool_info), "info", getString(R.string.chat_todo_cleared));
+                } else {
+                    agentTools.todo().add(rest);
+                    addTool(getString(R.string.chat_tool_info), "info", agentTools.todo().render(Lang.zh()));
+                }
+                return;
+            }
+            case "skill": {
+                if (rest.isEmpty()) {
+                    agentTools.skills().seedBuiltins(Lang.zh());
+                    List<SkillLibrary.Skill> all = agentTools.skills().load();
+                    addTool(getString(R.string.chat_tool_info), "info",
+                            agentTools.skills().renderList(all, Lang.zh()));
+                } else {
+                    List<SkillLibrary.Skill> hits = agentTools.skills().search(rest, 5);
+                    addTool(getString(R.string.chat_tool_info), "info",
+                            agentTools.skills().renderList(hits, Lang.zh()));
+                }
+                return;
+            }
+            case "web": {
+                java.util.Set<ToolSpec.Group> g = toolGroups();
+                boolean want = !"off".equalsIgnoreCase(rest)
+                        && ("on".equalsIgnoreCase(rest) || !g.contains(ToolSpec.Group.WEB));
+                if (want) g.add(ToolSpec.Group.WEB);
+                else g.remove(ToolSpec.Group.WEB);
+                saveToolGroups(g);
                 addTool(getString(R.string.chat_tool_info), "info",
                         getString(toolWeb ? R.string.chat_web_on : R.string.chat_web_off));
                 return;

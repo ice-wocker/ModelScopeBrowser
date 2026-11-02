@@ -4,7 +4,7 @@
 
 完整历史。按时间倒序。
 
-## v2.7.0 — 把散在四条分支上的改动收成一次版本
+## v2.7.1 — 五条分支收口，版本号只有一处真源
 
 这一版没有新写什么，做的是合并与对账：`fix/v2.6.1`、`fix/version-consistency`、
 `feat/agent-toolkit-57`、`feat/site-autoupdate`、`auto/profile-readme-1777` 五条分支各自独立开发，
@@ -37,6 +37,74 @@
 - `./gradlew testDebugUnitTest`：110 个用例全绿。
 - `./gradlew assembleRelease`：arm64-v8a（多档指令集）+ armeabi-v7a 双 ABI 出包。
 
+## v2.7.0 — 57 个工具，工具说明 / 白名单 / 风险判定合成一张表
+
+### 智能体（本次主体）
+
+之前只有 8 个工具，而且**工具说明、工具名白名单、危险动作判定是三份手写清单**：
+加一个工具要改三个地方，漏一处就会出现「能调用但模型不知道它存在」，或者「危险动作没经过确认」。
+这次先把这件事修掉，再往上加量。
+
+- **`agent/ToolRegistry` 成为唯一真源**：每个工具声明名字、分组、参数、是否危险、中英各一句说明。
+  `AgentTools.describe` / `ToolCall` 白名单 / `AgentTools.risky` 全部从它派生。
+- **工具从 8 个扩到 57 个**，按组开关（文件 / 文本 / 计算 / 设备 / 联网 / 终端 / 智能体 / 外部模型）。
+  关掉的组模型连说明都看不到，不是「看得到但调不动」。
+- **`apply_patch`**：模型只给「要找的原文」和「替换成什么」。小模型重写整个文件必丢内容
+  （300 行 HTML 改个按钮回来只剩 120 行），片段替换把破坏面压到最小；找不到原文时
+  **文件一个字都不改**，并把最像的一段回给它自己纠错。
+- **`grep` / `find_files` / `file_tree` / `file_stat`**：找东西不必把整个文件读进上下文。
+- **`todo_*`**：计划外化成 `/todo.json`，长任务不再「跑到第四步忘了第一步」。
+- **`memory_*`**：长期偏好落 `/memory.txt`，每轮注入，条数与长度沿用 `PromptTemplate` 的裁剪。
+- **`skill_*`**：技能库 7 条内置套路（长文摘要 / 代码评审 / 故障定位 / 单文件网页 / 翻译校对 / 小步重构 / 安全命令），
+  BM25 检索后**只把命中的一条正文**塞进上下文 —— 3B 模型也能用上几十条技能而不被撑爆。
+- **`llm_ask`**：可选 OpenAI 兼容通道。端侧 3B 负责做决定，难的子问题外包给更大的模型；
+  Key 只存本机，不进对话历史，也不回显在工具结果里。
+- **`redact`**：把密钥 / Token / 私钥 / URL 里的密码抹掉再回灌，避免它们跟着导出和下一轮 prompt 走。
+
+### 新增纯逻辑件（零 Android 依赖，可 JVM 单测）
+
+`DigestKit`（流式摘要，4 GB 文件不吃内存）· `TimeKit`（日期换算集中一处）·
+`JsonAccess`（`org.json` 容错读取，支持 `a.b[0].c`）· `SseParser`（SSE 增量解析，扛住跨块切断）·
+`Bm25`（中文二元切词 + 检索排序）· `DiffKit`（LCS 差分 + unified 渲染）·
+`DocConverter`（CSV ↔ Markdown 表格、宽字符对齐、Mermaid 折线图）。
+
+### 安全边界
+
+- **`PathGuard`**：`shell` 执行前两道闸。硬拒绝 `rm -rf /`、`dd of=/dev/block/…`、fork 炸弹、
+  `mkfs`、`su`、`pm uninstall`、递归 chmod/chown；警告递归删除、通配符、重定向到根目录、
+  「下载直接管道进 shell」。另外拒绝命令里出现的**工作区外绝对路径**。
+- **HTTP 重定向手动跟随**：每一跳都重新过地址白名单。默认的自动跟随会绕过第一跳的检查。
+- **下载 / 解压有上限**：`download_file` 512 MB、zip 条目 2000 个 / 256 MB，逐条校验 canonical 路径挡 zip slip。
+
+### 界面
+
+- 状态条新增「能力」入口：按组开关工具，一眼看到开了几个。
+- 新增斜杠命令：`/caps` `/ext` `/memo` `/todo` `/skill`。
+- 外部模型配置在应用内完成（基地址 / Key / 模型名），不写死在代码里。
+
+### 验证
+
+```
+testDebugUnitTest  →  157 个全绿（99 → 157，新增 ToolKitTest 26 + AgentKitTest 32）
+lintDebug          →  0 error（新增代码引入 6 个 NewApi，全部改掉：
+                       java.util.Base64 与 Files.readAllBytes 在 minSdk 24 上不可用）
+assembleDebug      →  通过，含 NDK 交叉编译 llama.cpp 与 JNI 链接
+values / values-zh →  各 247 条 key，逐条对齐
+```
+
+这次新增的用例里有几条是**踩了自己写的 bug 才补上的**，留在这里当记录：
+引号归一用了长度不变的逐字符替换（否则按归一后的下标切原文会错位）；
+`SecureRedactor` 的宽松规则和严格规则混在一个列表里，导致 `includePair=false` 时形同虚设；
+日历天加减必须走 `Calendar`，纯毫秒加减会被时区推偏一天；
+断言中文文案的用例必须显式钉住语言，否则在英文机器上是假失败。
+
+### 没做（不假装做完）
+
+- **仍然没有真机回归**。全部是编译期 + 单测 + 静态推导。`apply_patch`、`notify`、`clipboard`、`share`
+  这几个只在真机上有意义的功能，建议装上后逐个点一遍。
+- **`llm_ask` 没有对着真实服务商跑过**。请求体与响应解析有单测（含 SSE 兜底），
+  但「某家服务商的鉴权头怎么写」这种事只能实测。
+- **没有 GPU 后端**（Vulkan / OpenCL），纯 CPU 推理仍是天花板。
 ## v2.6.1 — 把「说到了但没做到」的地方做实
 
 这一版不加功能。逐条对着代码找「文档宣称的行为和实际行为不一致」的地方，能复现的都修了，

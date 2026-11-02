@@ -182,7 +182,7 @@
     <string name="chat_quick_2">Search today\'s tech news and summarise it</string>
     <string name="chat_quick_3">Create hello.txt in the terminal and write something into it</string>
     <string name="chat_slash_tip">Type / for commands: /search, /run, /ls, /help</string>
-    <string name="chat_slash_help">Commands:\n/search &lt;keywords&gt;  search the web and summarise\n/web on|off          allow / block AI web access\n/run &lt;command&gt;       run a command in the on-device terminal (real shell)\n/ls [dir]            list a workspace directory\n/cat &lt;file&gt;         show a file\n/preview &lt;file&gt;     preview a web page\n/files              open the workspace\n/help                show this help\n\nAnything else is executed as a real command, e.g. /pwd or /grep foo *.txt.</string>
+    <string name="chat_slash_help">Commands:\n/search &lt;keywords&gt;  search the web and summarise\n/web on|off          allow / block AI web access\n/caps                choose which tool groups the agent may use\n/ext                 configure the optional external model\n/memo [text]         list or add a long-term preference\n/todo [text]         list or add a todo item (/todo clear to reset)\n/skill [keywords]    search the skill library\n/run &lt;command&gt;       run a command in the on-device terminal (real shell)\n/ls [dir]            list a workspace directory\n/cat &lt;file&gt;         show a file\n/preview &lt;file&gt;     preview a web page\n/files              open the workspace\n/help                show this help\n\nAnything else is executed as a real command, e.g. /pwd or /grep foo *.txt.</string>
     <string name="chat_cmd_failed">Command failed: %1$s</string>
     <string name="cmd_preview_usage">/preview &lt;file&gt;</string>
     <string name="chat_stats_recent">Last %1$d turns</string>
@@ -244,4 +244,43 @@
     <string name="lang_zh">中文</string>
     <string name="lang_en">English</string>
     <string name="lang_changed">Language changed</string>
+
+    <!-- Agent tools: notifications -->
+    <string name="notif_channel_agent">Agent notes</string>
+    <string name="notif_channel_agent_desc">Messages posted by the on-device agent</string>
+
+    <!-- Agent tools: capabilities sheet -->
+    <string name="caps_title">Agent capabilities</string>
+    <string name="caps_subtitle">Turn on only what you want the model to be able to touch.</string>
+    <string name="caps_group_file">Files &amp; text</string>
+    <string name="caps_group_text">Text processing</string>
+    <string name="caps_group_calc">Calc &amp; time</string>
+    <string name="caps_group_device">Device</string>
+    <string name="caps_group_web">Network</string>
+    <string name="caps_group_agent">Memory, todo, skills</string>
+    <string name="caps_group_shell">Terminal</string>
+    <string name="caps_group_model">External model</string>
+    <string name="caps_count">%1$d tools on</string>
+    <string name="caps_confirm_risky">Writes &amp; device actions always ask first</string>
+
+    <!-- Agent tools: external model (OpenAI-compatible) -->
+    <string name="ext_model_title">External model</string>
+    <string name="ext_model_desc">Optional. When set, llm_ask forwards a question to a bigger model over HTTPS.</string>
+    <string name="ext_model_base">Base URL (…/v1)</string>
+    <string name="ext_model_key">API key</string>
+    <string name="ext_model_name">Model name</string>
+    <string name="ext_model_saved">Saved</string>
+    <string name="ext_model_clear">Clear</string>
+    <string name="ext_model_test">Test</string>
+    <string name="ext_model_ok">Reachable, %1$s</string>
+    <string name="ext_model_fail">Failed: %1$s</string>
+    <string name="ext_model_key_hint">Stored on this device only</string>
+
+    <!-- Agent tools: results -->
+    <string name="tool_blocked">Blocked by safety check</string>
+    <string name="tool_confirm_title">The agent wants to run a tool</string>
+    <string name="tool_confirm_run">Run</string>
+    <string name="tool_confirm_cancel">Cancel</string>
+    <string name="chat_todo_cleared">Todo board cleared</string>
+    <string name="chat_caps_tip">Grouped tool switches</string>
 </resources>
