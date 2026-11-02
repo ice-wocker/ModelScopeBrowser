@@ -14,7 +14,7 @@ the model can run shell commands, search the web and work with files.*
 [![Android](https://img.shields.io/badge/Android-7.0%2B%20(API%2024)-3DDC84?logo=android&logoColor=white)](#)
 [![llama.cpp](https://img.shields.io/badge/llama.cpp-b11205-000000)](#)
 [![推理](https://img.shields.io/badge/%E6%8E%A8%E7%90%86-%E7%BA%AFCPU%20%C2%B7%20%E5%A4%9A%E6%A1%A3%E6%8C%87%E4%BB%A4%E9%9B%86-4B5563)](#)
-[![Tests](https://img.shields.io/badge/tests-157%20passed-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-168%20passed-brightgreen)](#)
 
 [**English**](README.en.md) · [下载安装](#下载安装) · [功能](#功能) · [怎么用](#怎么用) · [技术亮点](#技术亮点) · [文档](#文档) · [构建](#构建) · [作者](#作者)
 
@@ -28,7 +28,7 @@ the model can run shell commands, search the web and work with files.*
 对话页不是「只能聊天」的玩具——它是一个**能动手的智能体**：模型可以自己调用手机终端跑命令、联网搜索、读写工作区文件、预览网页，
 并在拿到真实结果后继续推理。
 
-> **当前版本 v2.7.0**（versionCode 15）· 原生化 arm64 多档指令集 · 纯 CPU 离线推理 · 数据不出设备
+> **当前版本 v2.7.1**（versionCode 15）· 原生化 arm64 多档指令集 · 纯 CPU 离线推理 · 数据不出设备
 
 ![架构](docs/assets/arch.png)
 
@@ -133,7 +133,7 @@ the model can run shell commands, search the web and work with files.*
 
 | 渠道 | 说明 |
 |---|---|
-| **[Releases](https://github.com/ice-wocker/ModelScopeBrowser/releases)** | 推荐。最新 **v2.7.0** `ModelScope-Models-2.7.0.apk`，CI 构建 + 正式签名（约 **8.2 MB**） |
+| **[Releases](https://github.com/ice-wocker/ModelScopeBrowser/releases)** | 推荐。最新 **v2.7.1** `ModelScope-Models-2.7.1.apk`，本机构建（约 **8.1 MB**，sha256 见 Release 说明） |
 | **[Actions 产物](https://github.com/ice-wocker/ModelScopeBrowser/actions)** | 每次提交都会产出 `apk` artifact（debug 与 release 都在里面） |
 
 - 要求：**Android 7.0 (API 24) 及以上**；首次安装需允许「安装未知来源应用」
