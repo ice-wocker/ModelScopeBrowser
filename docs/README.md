@@ -514,7 +514,7 @@ v2.4.2 是「把看起来能用、偶尔不对的地方钉死」；v2.5.0 是「
 | `PerfStats` | 滚动统计均值 / P90，明显劣化时给一句可操作的建议 |
 | `MarkdownOutline` | 长回复的标题大纲 |
 
-这些全部不 import `android.*`，因此能在 JVM 上直接单测——新增 47 个用例，总数 87；v2.6.0 补 12 个本地化用例，共 99。
+这些全部不 import `android.*`，因此能在 JVM 上直接单测——新增 47 个用例，总数 87；v2.6.0 补 12 个本地化用例，共 99；v2.7.0 再补 58 个（工具注册表、`apply_patch`、`PathGuard`、`Bm25`、`DiffKit`、SSE 解析等），共 **157**。
 
 ![参数](assets/params.png)
 
@@ -622,12 +622,12 @@ Vulkan / OpenCL 后端需要 `glslc` 等工具链，构建环境不具备。纯 
 ### 12.3 常用命令
 
 ```bash
-./gradlew testDebugUnitTest        # 单测（99 个）
+./gradlew testDebugUnitTest        # 单测（157 个）
 ./gradlew lintDebug                # Lint（abortOnError）
 ./gradlew assembleDebug            # debug 包
 ./gradlew assembleRelease          # release 包（R8 + 资源压缩）
 ./gradlew :app:dependencies        # 依赖树
-git tag v2.6.0 && git push --tags  # 触发 Release 流水线
+git tag v2.7.0 && git push --tags  # 触发 Release 流水线
 ```
 
 ### 12.4 排错顺序

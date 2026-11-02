@@ -260,7 +260,7 @@ PROPS
 grep versionCode app/build.gradle
 
 # 2. tag it (must start with v; CI only recognises that)
-git tag v2.6.0
+git tag v2.7.0
 git push origin v2.6.0
 ```
 

@@ -26,7 +26,9 @@ jobs:
   # 不必等 40 分钟的 native 编译跑完才发现一个格式错误。
   verify:
     name: 单元测试 + Lint
-    runs-on: ubuntu-latest
+    # 钉版本：代码里写了 buildToolsVersion "36.0.0"，而 ubuntu-latest 预装的
+    # build-tools 会随镜像滚动，一旦对不上就要现场 sdkmanager 下载，慢且偶发失败。
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -61,7 +63,9 @@ jobs:
   build:
     name: 构建 APK
     needs: verify
-    runs-on: ubuntu-latest
+    # 钉版本：代码里写了 buildToolsVersion "36.0.0"，而 ubuntu-latest 预装的
+    # build-tools 会随镜像滚动，一旦对不上就要现场 sdkmanager 下载，慢且偶发失败。
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -75,7 +79,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      # ubuntu-latest 已预装 Android SDK；这里只补齐项目需要的 platform/build-tools/ndk/cmake。
+      # 镜像已预装 Android SDK；这里只补齐项目需要的 platform/build-tools/ndk/cmake。
       # 注意：不要用 android-actions/setup-android，它会执行 `sdkmanager tools`，
       # 而新版 cmdline-tools 已移除该 package，会导致步骤失败。
       - name: Ensure Android SDK packages

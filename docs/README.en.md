@@ -549,7 +549,7 @@ been there all along".
 | `PerfStats` | rolling mean / P90, with an actionable sentence when performance clearly degrades |
 | `MarkdownOutline` | heading outline for long replies |
 
-None of them imports `android.*`, so they are unit-testable on the JVM — 47 new cases, 99 in total after v2.6.0 added 12 localisation cases.
+None of them imports `android.*`, so they are unit-testable on the JVM — 47 new cases, 99 in total after v2.6.0 added 12 localisation cases, and **157** after v2.7.0 added 58 more (tool registry, `apply_patch`, `PathGuard`, `Bm25`, `DiffKit`, SSE parsing).
 
 ![Parameters](assets/params.png)
 
@@ -666,12 +666,12 @@ to anti-scraping. Quality and freshness are whatever the sources give.
 ### 12.3 Common commands
 
 ```bash
-./gradlew testDebugUnitTest        # unit tests (99)
+./gradlew testDebugUnitTest        # unit tests (157)
 ./gradlew lintDebug                # Lint (abortOnError)
 ./gradlew assembleDebug            # debug APK
 ./gradlew assembleRelease          # release APK (R8 + resource shrinking)
 ./gradlew :app:dependencies        # dependency tree
-git tag v2.6.0 && git push --tags  # trigger the Release pipeline
+git tag v2.7.0 && git push --tags  # trigger the Release pipeline
 ```
 
 ### 12.4 Diagnostic order
