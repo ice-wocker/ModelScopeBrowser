@@ -111,6 +111,9 @@ struct Session {
     const llama_vocab *vocab = nullptr;
     llama_memory_t     mem   = nullptr;   // ctx 的 KV 内存句柄，生命周期同 ctx
     std::string        tmpl;
+    /// 对话模板的「助手起始标记」增量（如 <start_of_turn>model\n / <|Assistant|>），
+    /// 只在第一步生成时写进流里，把模型拉回「轮到我说话」的位置。空串表示模板无需该标记。
+    std::string        asstMark;
     int32_t            n_ctx   = 2048;
     int32_t            n_batch = kBatchTokens;
 
@@ -120,6 +123,24 @@ struct Session {
 
     /// 当前 KV 中已存在的 token 序列（位置 0..size-1），用于跨轮复用公共前缀。
     std::vector<llama_token> kv;
+
+    /// 当前轮次使用的 KV 序列号（"槽位"），每轮换一个。
+    ///
+    /// 为什么必须换：工具调用（以及带思维链的模型）会让**同一轮里出现连续两条 assistant 消息**
+    /// —— 第一条是「我要调 tool」，第二条是工具结果回灌后的续写，中间夹一条 role=tool。
+    /// 这种消息序列过完对话模板后，未必以「assistant 起始标记」结尾：
+    ///   · MiniCPM5：模板在 BOS 上已写过 <|im_start|>，追加时又写一遍，结束符落在开头，追加态即空串；
+    ///   · Gemma：模板不写 <end_of_turn>，追加态是 "<start_of_turn>model\n"，
+    ///     而 DeepSeek-V3.1 / GLM-4.5 这类模型产出的是 "<|Assistant|>" 之类的专用标记。
+    /// 两种情况下，把下一段 token 直接续在「上一段 assistant 输出」后面，要么产出
+    /// 「assistant\n assistant」，要么让模型看不见「轮次已重新开始」而把工具调用当成
+    /// 自己上一句的续写 —— 表现就是工具调用发不出去、或者一直重复同一次调用。
+    ///
+    /// 所以在「上一轮最后一个 token 不在新 prompt 的前缀里」时（= 需要真正续写新一轮），
+    /// 换一个干净的空槽位重新预填充：新槽位的 pos 从 0 开始，与旧槽位的 KV 完全隔离。
+    /// 代价是这一轮预填充整段 prompt；收益是每条 assistant 消息都从模板的起始标记开始，
+    /// 工具调用与多条 assistant 在上下文中共存时不再互相污染。
+    llama_seq_id seq = 0;
 
     std::atomic<bool>  cancel{false};
     std::mutex         mu;
@@ -193,7 +214,7 @@ bool decodeRange(Session *s, const std::vector<llama_token> &tokens, int32_t fro
         b.token[n]     = tokens[i];
         b.pos[n]       = i;                 // 位置即 KV 中的绝对下标，与复用保持一致
         b.n_seq_id[n]  = 1;
-        b.seq_id[n][0] = 0;
+        b.seq_id[n][0] = s->seq;
         b.logits[n]    = (i == to - 1) ? 1 : 0;
         ++n;
     }
@@ -207,12 +228,28 @@ bool decodeNext(Session *s, llama_token id) {
     b.token[0]     = id;
     b.pos[0]       = static_cast<llama_pos>(s->kv.size());
     b.n_seq_id[0]  = 1;
-    b.seq_id[0][0] = 0;
+    b.seq_id[0][0] = s->seq;
     b.logits[0]    = 1;
     b.n_tokens     = 1;
     if (llama_decode(s->ctx, b) != 0) return false;
     s->kv.push_back(id);
     return true;
+}
+
+/// 套用一次对话模板；返回空串表示模板不可用（调用方自行退化）。
+std::string applyTemplate(const char *tmpl, const std::vector<llama_chat_message> &chat,
+                          bool addAss) {
+    if (chat.empty()) return {};
+    std::vector<char> buf(8192);
+    int32_t need = llama_chat_apply_template(tmpl, chat.data(), chat.size(), addAss,
+                                             buf.data(), static_cast<int32_t>(buf.size()));
+    if (need > static_cast<int32_t>(buf.size())) {
+        buf.resize(static_cast<size_t>(need) + 1);
+        need = llama_chat_apply_template(tmpl, chat.data(), chat.size(), addAss,
+                                         buf.data(), static_cast<int32_t>(buf.size()));
+    }
+    if (need <= 0) return {};
+    return std::string(buf.data(), static_cast<size_t>(need));
 }
 
 /// 组装消息并套用对话模板；模板不可用时退化为朴素拼接。
@@ -238,23 +275,27 @@ std::string buildPrompt(Session *s, JNIEnv *env,
     for (jsize i = 0; i < n; ++i) chat.push_back({roles[i].c_str(), contents[i].c_str()});
 
     const char *tmplName = s->tmpl.empty() ? "chatml" : s->tmpl.c_str();
-    std::string prompt;
-    {
-        std::vector<char> buf(8192);
-        int32_t need = llama_chat_apply_template(tmplName, chat.data(), chat.size(), true,
-                                                 buf.data(), static_cast<int32_t>(buf.size()));
-        if (need > static_cast<int32_t>(buf.size())) {
-            buf.resize(static_cast<size_t>(need) + 1);
-            need = llama_chat_apply_template(tmplName, chat.data(), chat.size(), true,
-                                             buf.data(), static_cast<int32_t>(buf.size()));
+    std::string prompt = applyTemplate(tmplName, chat, true);
+    if (prompt.empty()) {
+        for (const auto &m : chat) {
+            prompt += std::string(m.role) + ": " + m.content + "\n";
         }
-        if (need > 0) {
-            prompt.assign(buf.data(), static_cast<size_t>(need));
-        } else {
-            for (const auto &m : chat) {
-                prompt += std::string(m.role) + ": " + m.content + "\n";
-            }
-            prompt += "assistant: ";
+        prompt += "assistant: ";
+    }
+
+    // 模板的「助手起始标记」= apply(不带最后一条) 到 apply(全部) 之间的那段增量。
+    // 原生工具调用要用的正是它：模型原生协议要求自己把 <|Assistant|> / <start_of_turn>model
+    // 这类标记写出来；把我们生成的这段标记直接拼进生成流，模型看到的就是它训练时的样子。
+    // 只在模板确实产出增量时才写（chatml 的增量就是里面已有的 "assistant\n"，再写一遍会重复）。
+    if (s->asstMark.empty() && !roles.empty() && roles.back() == "assistant") {
+        std::vector<llama_chat_message> without(chat.begin(), chat.end() - 1);
+        std::string head = applyTemplate(tmplName, without, false);
+        std::string whole = applyTemplate(tmplName, chat, false);
+        if (whole.size() > head.size() && whole.compare(0, head.size(), head) == 0) {
+            std::string delta = whole.substr(head.size());
+            bool inner = delta.find("assistant") != std::string::npos
+                      || delta.find("<|im_start|>") != std::string::npos;
+            if (!inner) s->asstMark = delta;
         }
     }
 
@@ -419,6 +460,7 @@ Java_com_mscope_browser_llama_LlamaBridge_nativeReset(JNIEnv *, jclass, jlong ha
     if (s == nullptr) return;
     llama_memory_clear(s->mem, true);
     s->kv.clear();     // 新对话：缓存一并作废
+    s->seq = 0;        // 槽位也回到 0，避免残留的半截序列影响下一轮的复用判定
 }
 
 JNIEXPORT void JNICALL
@@ -490,7 +532,8 @@ Java_com_mscope_browser_llama_LlamaBridge_nativeBuildPrompt(
 JNIEXPORT jstring JNICALL
 Java_com_mscope_browser_llama_LlamaBridge_nativeGenerate(
         JNIEnv *env, jclass, jlong handle, jobjectArray jRoles, jobjectArray jContents,
-        jint maxTokens, jfloat temp, jfloat topP, jint topK, jint seed, jobject callback) {
+        jint maxTokens, jfloat temp, jfloat topP, jint topK, jint seed,
+        jfloat repeatPenalty, jint repeatLast, jboolean replay, jobject callback) {
     std::unique_lock<std::mutex> lock;
     Session *s = acquire(handle, lock);
     if (s == nullptr || s->ctx == nullptr) {
@@ -533,34 +576,63 @@ Java_com_mscope_browser_llama_LlamaBridge_nativeGenerate(
     // 之后 decode 的位置与 KV 实际内容不一致 —— 轻则答非所问，重则采样崩溃。
     // 所以先用公共前缀的 token 重建一份「按位置对齐」的序列，再做（带位置的）删除。
     int32_t n_common = 0;
+
+    // 超长历史：native 层只保留末尾预算。与上层「按消息裁剪」互为兜底。
+    // 必须先截断再算前缀：在未截断的 tokens 上算出来的 n_common 一旦大于截断后的长度，
+    // 后面的 erase / seq_rm 就会用错位置，把不同区间的 KV 拼在一起。
+    if (static_cast<int32_t>(tokens.size()) > budgetInput) {
+        tokens.erase(tokens.begin(), tokens.end() - budgetInput);
+        llama_memory_clear(s->mem, true);
+        s->kv.clear();
+    }
+
     {
         const int32_t nKv = static_cast<int32_t>(s->kv.size());
-        const int32_t lim = std::min<int32_t>(static_cast<int32_t>(tokens.size()), nKv);
+        const int32_t nTok = static_cast<int32_t>(tokens.size());
+        const int32_t lim = std::min<int32_t>(nTok, nKv);
         while (n_common < lim && s->kv[n_common] == tokens[n_common]) ++n_common;
 
-        // 整个 prompt 都命中时，需要回退一位重新解码，才能拿到用于采样的 logits
-        if (n_common == static_cast<int32_t>(tokens.size()) && n_common > 0) n_common--;
+        // 上一轮的末尾 token（即上一轮的 assistant 输出）是否被这次 prompt 完整覆盖。
+        // 只覆盖了 prompt 的部分说明「历史没变、只是多问了一句」，直接续写是对的；
+        // 没覆盖说明上一轮是在别的槽位生成的（见下），新 prompt 需要从干净槽位重新开始。
+        const bool prevEndedInPrompt = (nTok >= nKv && n_common >= nKv);
 
-        if (n_common < nKv) {
+        // 整个 prompt 都命中时，需要回退一位重新解码，才能拿到用于采样的 logits
+        if (n_common == nTok && n_common > 0) n_common--;
+
+        // 上一轮的结尾不在新 prompt 里就换槽位。为什么不能「从 n_common 处继续」：
+        // 上一轮结束时 KV 里是「prompt + 本轮输出」，而新 prompt 只包含其中前面的部分。
+        // 从 n_common 往后重新 decode 的 token 会与残留输出**位置重叠**，
+        // 注意力看到的是两段不同文本叠在同一个位置上 —— 这正是「多轮之后答非所问」的来源。
+        // 换到空槽位重填，位置与内容重新对齐，代价是这一轮预填充整段 prompt。
+        //
+        // replay=true 是上层给出的例外：它表示「上一轮产出本来就不该进入下一轮历史」
+        // （智能体把工具结果当轮剔除时就是这种情况）。此时残留的输出本来就该被忘掉，
+        // 只剩公共前缀有意义，删掉 n_common 之后的部分、在原槽位续写即可，不必整段重填。
+        const bool needNewSlot = !prevEndedInPrompt && replay == JNI_FALSE;
+
+        if (needNewSlot) {
+            // 换槽位：清空一个**别的**序列号并切换过去。
+            // 不 clear 整个 KV：万一删除不被支持（循环/混合结构），至少不会连带把旧槽位弄脏；
+            // 旧槽位的数据留在那里，下次切回来还能直接命中前缀。
+            llama_seq_id next = static_cast<llama_seq_id>(s->seq == 0 ? 1 : 0);
+            llama_memory_seq_rm(s->mem, next, -1, -1);
+            s->seq = next;
+            s->kv.clear();
+            n_common = 0;
+        }
+        // 注意第二个分支的条件不能挂在 else 上：换槽位后 s->kv 已经清空，不会再进这里。
+        if (!needNewSlot && n_common < static_cast<int32_t>(s->kv.size())) {
             std::vector<llama_token> keep(tokens.begin(), tokens.begin() + n_common);
-            if (!llama_memory_seq_rm(s->mem, 0, n_common, -1)) {
+            if (!llama_memory_seq_rm(s->mem, s->seq, n_common, -1)) {
                 // 部分删除不被支持（循环/混合结构），退回整体清空
                 llama_memory_clear(s->mem, true);
+                s->seq = 0;
                 keep.clear();
             }
             s->kv.swap(keep);
         }
         n_common = static_cast<int32_t>(s->kv.size());
-    }
-
-    // 超长历史：native 层只保留末尾预算。与上层「按消息裁剪」互为兜底。
-    if (static_cast<int32_t>(tokens.size()) > budgetInput) {
-        tokens.erase(tokens.begin(), tokens.end() - budgetInput);
-        if (n_common > budgetInput) {
-            llama_memory_clear(s->mem, true);
-            s->kv.clear();
-            n_common = 0;
-        }
     }
 
     // ---- 4. 分块预填充：只算新增部分 ----
@@ -578,6 +650,15 @@ Java_com_mscope_browser_llama_LlamaBridge_nativeGenerate(
     llama_sampler_chain_params sp = llama_sampler_chain_default_params();
     sp.no_perf = true;
     llama_sampler *smpl = llama_sampler_chain_init(sp);
+    // 重复惩罚放在最前：3B 级模型在纯 CPU 长输出里很容易陷入「一句话反复重写」的循环，
+    // 温度与 top-k/top-p 都管不住，只有惩罚项能压下来。1.0 表示关闭（与旧行为兼容）。
+    if (repeatPenalty > 1.0f) {
+        // 注意签名里有 n_vocab：b11205 起 llama.cpp 的 penalties 采样器接受词表大小，
+        // 并且官方注释提示「别在全词表上跑」—— 所以这里仍然把 top-k/top-p 放在它后面，
+        // 让它只需要在一小撮候选上算重复。
+        llama_sampler_chain_add(smpl, llama_sampler_init_penalties(
+                llama_vocab_n_tokens(s->vocab), repeatLast, repeatPenalty, 0.0f, 0.0f));
+    }
     if (topK > 0) llama_sampler_chain_add(smpl, llama_sampler_init_top_k(topK));
     if (topP > 0.0f && topP < 1.0f) llama_sampler_chain_add(smpl, llama_sampler_init_top_p(topP, 1));
     if (temp > 0.0f) llama_sampler_chain_add(smpl, llama_sampler_init_temp(temp));
@@ -585,11 +666,6 @@ Java_com_mscope_browser_llama_LlamaBridge_nativeGenerate(
                                               : llama_sampler_init_greedy());
 
     // ---- 6. 逐 token 生成并流式回调 ----
-    std::u16string full;
-    Utf8Stream stream;
-    std::vector<char> piece(512);
-    bool aborted = false;
-
     jclass cbClass = nullptr;
     jmethodID onToken = nullptr;
     if (callback != nullptr) {
@@ -598,6 +674,24 @@ Java_com_mscope_browser_llama_LlamaBridge_nativeGenerate(
         if (env->ExceptionCheck()) {                       // 方法找不到会挂起异常，先清掉再继续
             env->ExceptionClear();
             onToken = nullptr;
+        }
+    }
+
+    std::u16string full;
+    Utf8Stream stream;
+    std::vector<char> piece(512);
+    bool aborted = false;
+
+    // 把模板的「助手起始标记」先写进流：模型原生工具调用（DeepSeek-V3.1 / GLM-4.5 的
+    // <|Assistant|>、Gemma 的 <start_of_turn>model 等）依赖它才知道自己该开始说话了。
+    // 只在第一步（没有历史输出可续写）时写一次，避免每轮都重复。
+    if (!s->asstMark.empty()) {
+        std::u16string mark = toU16(s->asstMark);
+        full += mark;
+        if (callback != nullptr && onToken != nullptr) {
+            jstring js = toJString(env, mark);
+            env->CallVoidMethod(callback, onToken, js);
+            env->DeleteLocalRef(js);
         }
     }
 

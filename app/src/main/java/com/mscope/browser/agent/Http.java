@@ -174,16 +174,39 @@ public final class Http {
         if (!WebSearch.allowedForFetch(url)) return -1;
         HttpURLConnection c = null;
         try {
-            c = (HttpURLConnection) new URL(url).openConnection();
-            c.setConnectTimeout(TIMEOUT);
-            c.setReadTimeout(TIMEOUT);
-            c.setInstanceFollowRedirects(true);
-            c.setRequestProperty("User-Agent", "ModelScopeBrowser/agent");
-            int code = c.getResponseCode();
+            // 重定向手动跟随并逐跳复查：自动跟随时 HttpClient 不会重新做地址校验，
+            // 一个公网地址 302 到 http://192.168.1.1/ 就能把本机内网当跳板。
+            String target = url.trim();
+            int code = -1;
+            for (int hop = 0; hop <= MAX_REDIRECTS; hop++) {
+                if (!WebSearch.allowedForFetch(target)) return -1;
+                c = (HttpURLConnection) new URL(target).openConnection();
+                c.setConnectTimeout(TIMEOUT);
+                c.setReadTimeout(TIMEOUT);
+                c.setInstanceFollowRedirects(false);
+                c.setRequestProperty("User-Agent", "ModelScopeBrowser/agent");
+                code = c.getResponseCode();
+                if (code >= 300 && code < 400) {
+                    String loc = c.getHeaderField("Location");
+                    c.disconnect();
+                    c = null;
+                    if (loc == null || loc.isEmpty()) return -1;
+                    target = absolutize(target, loc);
+                    continue;
+                }
+                break;
+            }
+            if (c == null) return -1;
             if (code < 200 || code >= 300) return -1;
             long cap = maxBytes <= 0 ? 512L * 1024 * 1024 : maxBytes;
             long total = 0;
-            java.io.File tmp = new java.io.File(dest.getParentFile(), dest.getName() + ".part");
+            // 目录必须先建：写到 <工作区>/下载/a.bin 时 parent 还不存在，
+            // FileOutputStream 会直接抛 FileNotFoundException，用户看到的是「下载失败」而不知道为什么。
+            java.io.File parent = dest.getParentFile();
+            if (parent != null && !parent.isDirectory() && !parent.mkdirs() && !parent.isDirectory()) {
+                return -1;
+            }
+            java.io.File tmp = new java.io.File(parent, dest.getName() + ".part");
             try (InputStream in = c.getInputStream(); FileOutputStream out = new FileOutputStream(tmp)) {
                 byte[] buf = new byte[16384];
                 int n;
@@ -197,11 +220,6 @@ public final class Http {
                     out.write(buf, 0, n);
                 }
                 out.getFD().sync();
-            }
-            java.io.File parent = dest.getParentFile();
-            if (parent != null && !parent.isDirectory()) {
-                //noinspection ResultOfMethodCallIgnored
-                parent.mkdirs();
             }
             if (dest.exists()) {
                 //noinspection ResultOfMethodCallIgnored

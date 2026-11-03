@@ -14,7 +14,7 @@ the model can run shell commands, search the web and work with files.*
 [![Android](https://img.shields.io/badge/Android-7.0%2B%20(API%2024)-3DDC84?logo=android&logoColor=white)](#)
 [![llama.cpp](https://img.shields.io/badge/llama.cpp-b11205-000000)](#)
 [![推理](https://img.shields.io/badge/%E6%8E%A8%E7%90%86-%E7%BA%AFCPU%20%C2%B7%20%E5%A4%9A%E6%A1%A3%E6%8C%87%E4%BB%A4%E9%9B%86-4B5563)](#)
-[![Tests](https://img.shields.io/badge/tests-157%20passed-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-189%20passed-brightgreen)](#)
 
 [**English**](README.en.md) · [下载安装](#下载安装) · [功能](#功能) · [怎么用](#怎么用) · [技术亮点](#技术亮点) · [文档](#文档) · [构建](#构建) · [作者](#作者)
 
@@ -28,7 +28,7 @@ the model can run shell commands, search the web and work with files.*
 对话页不是「只能聊天」的玩具——它是一个**能动手的智能体**：模型可以自己调用手机终端跑命令、联网搜索、读写工作区文件、预览网页，
 并在拿到真实结果后继续推理。
 
-> **当前版本 v2.7.0**（versionCode 15）· 原生化 arm64 多档指令集 · 纯 CPU 离线推理 · 数据不出设备
+> **当前版本 v2.8.0**（versionCode 16）· 原生工具调用（DSML / `<tool_call>` / `[TOOL_CALLS]`）· 跨槽位 KV · 纯 CPU 离线推理
 
 ![架构](docs/assets/arch.png)
 
@@ -76,6 +76,13 @@ the model can run shell commands, search the web and work with files.*
 | 联网 | `web_search` `fetch_url` `download_file` `http_request` | 只许公网 http/https；重定向**手动跟随并复查每一跳**（自动跟随会绕过第一跳的地址检查） |
 | 智能体 | `memory_add` `memory_list` `memory_forget` `todo_add` `todo_done` `todo_list` `todo_clear` `skill_search` `skill_use` `skill_save` | 待办板把计划外化成 `/todo.json`，长任务不再「跑到第四步忘了第一步」；技能库 7 条内置套路，BM25 检索后只把命中的一条正文塞进上下文 |
 | 外部模型 | `llm_ask` | 可选 OpenAI 兼容通道。端侧 3B 做决定，难的子问题外包出去；Key 只存本机、不进对话历史 |
+
+**原生工具调用**：带 function-call 模板的 GGUF 模型不必模仿我们造的格式。`agent/ServerToolCall`
+按「强特征优先」认四种模型自己的协议 —— DeepSeek-V3.1 / GLM-4.5 的 DSML、Hermes / Qwen / Llama 的
+`<tool_call>`、Mistral 的 `[TOOL_CALLS]`、以及裸 JSON；认不出来才退回提示词协议。
+工具结果**只在当轮可见**，下轮丢失——既省上下文，也让 KV 能按「可回放」处理（只删公共前缀之后的部分，
+不换槽位、不整段重填）。同一轮里出现两条 assistant 消息时，原生层会切到独立的 KV 槽位，
+让模型明确看到「轮次已重新开始」——这是工具调用能连续跑通的前提。
 
 写操作与设备动作（`shell`、`write_file`、`apply_patch`、`delete_file`、`notify`、`clipboard`、`share` 等）执行前**弹窗确认**，也可选「本会话都允许」。
 点状态条上的「能力」按钮按组开关（文件 / 文本 / 计算 / 设备 / 联网 / 终端 / 智能体 / 外部模型），关掉的组连模型都看不见。
@@ -133,7 +140,7 @@ the model can run shell commands, search the web and work with files.*
 
 | 渠道 | 说明 |
 |---|---|
-| **[Releases](https://github.com/ice-wocker/ModelScopeBrowser/releases)** | 推荐。最新 **v2.7.0** `ModelScope-Models-2.7.0.apk`，CI 构建 + 正式签名（约 **8.2 MB**） |
+| **[Releases](https://github.com/ice-wocker/ModelScopeBrowser/releases)** | 推荐。最新 **v2.8.0** `ModelScope-Models-2.8.0.apk`，CI 构建 + 正式签名（约 **8.2 MB**） |
 | **[Actions 产物](https://github.com/ice-wocker/ModelScopeBrowser/actions)** | 每次提交都会产出 `apk` artifact（debug 与 release 都在里面） |
 
 - 要求：**Android 7.0 (API 24) 及以上**；首次安装需允许「安装未知来源应用」

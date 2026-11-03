@@ -64,6 +64,10 @@ public class DownloadCenter {
         public final String url;
         public volatile long done;
         public volatile long total = -1;
+        /** 本次连接的进度基线：续传时是已有字节数，用于区分「本次下载量」与「文件总量」。 */
+        volatile long base;
+        /** 因区间不连续而重下的次数（上限 1，防止服务端异常导致死循环）。 */
+        int restarts;
         public volatile boolean cancelled;
         public volatile boolean finished;
         /** 正在使用的连接，取消时用来立即打断阻塞的 read。 */
@@ -82,7 +86,7 @@ public class DownloadCenter {
         }
     }
 
-    private enum Finish {OK, FAILED, CANCELLED}
+    private enum Finish {OK, FAILED, CANCELLED, RESTART}
 
     private static volatile DownloadCenter instance;
 
@@ -193,12 +197,23 @@ public class DownloadCenter {
 
             final boolean resuming = (code == HttpURLConnection.HTTP_PARTIAL);
             if (resuming) {
+                // 远端可能换过文件（同名不同版本），此时 206 返回的区间并不是我们以为的那一段。
+                // 解析 Content-Range: bytes start-end/total，start 与本地已有字节数对不上就整体重下，
+                // 否则两代文件会被拼成一个「长度校验能过、加载就崩」的畸形 GGUF。
+                long[] range = parseContentRange(conn.getHeaderField("Content-Range"));
+                if (range != null && range[0] != existing) {
+                    Log.w(TAG, "续传区间不连续（本地 " + existing + "，服务端从 " + range[0]
+                            + " 开始），改为完整下载");
+                    throw new RestartException();
+                }
                 t.total = existing + conn.getContentLengthLong();
                 t.done = existing;
+                t.base = existing;
             } else {
                 existing = 0;                    // 服务端不支持 Range，只能从头下
                 t.total = conn.getContentLengthLong();
                 t.done = 0;
+                t.base = 0;
             }
 
             DownloadService.start(ctx, notifText(t), t.percent());
@@ -263,6 +278,21 @@ public class DownloadCenter {
 
             clearPending(t);
             finish(t, Finish.OK, null);
+        } catch (RestartException re) {
+            // 断点与远端对不上：丢掉断点，从零重下一次。
+            // 只重试一次 —— 服务端若一直返回不连续的区间，第二次就按普通失败处理，
+            // 否则这里会变成一个无限循环（每次都能抛 RestartException）。
+            //noinspection ResultOfMethodCallIgnored
+            part.delete();
+            if (conn != null) conn.disconnect();
+            t.conn = null;
+            if (!t.cancelled && t.restarts++ < 1) {
+                run(t);
+                return;
+            }
+            clearPending(t);
+            finish(t, Finish.FAILED, Lang.zh()
+                    ? "续传位置与服务器不一致，已停止" : "resume offset mismatch, gave up");
         } catch (CancelledException ce) {
             //noinspection ResultOfMethodCallIgnored
             part.delete();
@@ -484,5 +514,35 @@ public class DownloadCenter {
     }
 
     private static class CancelledException extends Exception {
+    }
+
+    /** 续传区间对不上，需要丢弃断点从零重下（内部用，不外抛）。 */
+    private static class RestartException extends Exception {
+    }
+
+    /**
+     * 解析 {@code Content-Range: bytes 1024-2047/4096}，返回 {start, end, total}。
+     * 认不出返回 null（此时退化为「信任本地断点」，与旧行为一致）。
+     */
+    static long[] parseContentRange(String header) {
+        if (header == null) return null;
+        String h = header.trim();
+        // 只认 RFC 7233 的 "bytes " 前缀；别的形式（items/…、自定义头）一律当作「认不出」，
+        // 让上层退化为信任本地断点，而不是拿一个猜出来的区间去拼文件。
+        if (!h.toLowerCase(java.util.Locale.ROOT).startsWith("bytes")) return null;
+        int sp = h.indexOf(' ');
+        if (sp >= 0) h = h.substring(sp + 1).trim();          // 去掉 "bytes"
+        int slash = h.indexOf('/');
+        int dash = h.indexOf('-');
+        if (dash <= 0 || slash < 0) return null;
+        try {
+            long start = Long.parseLong(h.substring(0, dash).trim());
+            long end = Long.parseLong(h.substring(dash + 1, slash).trim());
+            String totalStr = h.substring(slash + 1).trim();
+            long total = "*".equals(totalStr) ? -1 : Long.parseLong(totalStr);
+            return new long[]{start, end, total};
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 }

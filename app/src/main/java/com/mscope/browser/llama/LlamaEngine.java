@@ -38,6 +38,31 @@ public class LlamaEngine {
         public float topP = 0.9f;
         public int topK = 40;
         public int seed = -1;
+        /**
+         * 重复惩罚。1.0 = 关闭。
+         *
+         * <p>手机上的 3B 级模型在纯 CPU 长输出里很容易陷入「同一句话反复重写」的循环，
+         * 温度和 top-k/top-p 都压不住 —— 它们只影响采样的分布形状，不影响「已经说过的词」。
+         * 默认 1.1 是 llama.cpp 生态里最温和的一档：能打断循环，又不至于把该重复的
+         * 代码括号、列表符号一起罚掉。
+         */
+        public float repeatPenalty = 1.1f;
+        /** 惩罚回看窗口（token 数）。512 覆盖最近两三段对话，足够。 */
+        public int repeatLast = 512;
+
+        public static Params of(Params other) {
+            Params p = new Params();
+            if (other != null) {
+                p.maxTokens = other.maxTokens;
+                p.temp = other.temp;
+                p.topP = other.topP;
+                p.topK = other.topK;
+                p.seed = other.seed;
+                p.repeatPenalty = other.repeatPenalty;
+                p.repeatLast = other.repeatLast;
+            }
+            return p;
+        }
     }
 
     public interface LoadListener {
@@ -71,6 +96,22 @@ public class LlamaEngine {
     private final Handler ui = new Handler(Looper.getMainLooper());
 
     private volatile long handle = 0;
+    /**
+     * 上一轮之后 KV 是否已不再对应「当前可见历史」。
+     *
+     * <p>为什么需要它：智能体的工具结果只在当轮回灌给模型，不写进历史（否则下一轮会把
+     * 上一轮的工具输出再喂一遍，既浪费上下文，又诱导模型重复调用同一个工具）。于是
+     * 「本轮请求」是历史的超集但不等于历史，原生层的前缀复用会把这段差额判成
+     * 「上一轮输出不在新 prompt 里」，从而每轮都换一次槽位、整段重填。
+     *
+     * <p>把「工具结果」本轮剔除这件事，正好对应「把 KV 回滚到工具调用之前」：
+     * 下一次请求是「历史 + 新的用户输入」，而 KV 里存的正是「历史里已生成的部分」。
+     * 所以工具轮结束时给 KV 打一个脏标记，下一次生成只把公共前缀当作有效缓存
+     * （{@link #markReplay}），不触发换槽位，也不损失正确性。
+     */
+    private volatile boolean kvDirty;
+    /** 已经跑过一次「可回放」生成：第一次不能回放，因为没有任何可复用的前缀。 */
+    private volatile boolean kvReplayArmed;
     private volatile LocalModel current;
     private volatile boolean loading;
     private volatile boolean generating;
@@ -280,12 +321,34 @@ public class LlamaEngine {
         handle = 0;
         current = null;
         backend = "";
+        kvDirty = false;
+        kvReplayArmed = false;
         if (h != 0) {
             try {
                 LlamaBridge.nativeFree(h);
             } catch (Throwable ignored) {
             }
         }
+    }
+
+    /**
+     * 标记「这次生成的结果不会进入下一轮历史，可以按前缀回放」。
+     *
+     * <p>调用时机：智能体一轮里执行过工具、并且把工具结果从上下文里剔掉之后。
+     * 下一次生成时 {@link #generate} 会把它转成 {@code replay=true}，
+     * 让原生层沿用公共前缀而不是换新槽位整段重填。
+     */
+    public void markReplayable() {
+        kvDirty = true;
+    }
+
+    /**
+     * 历史被真正改动（编辑重发、删除消息、重新生成、切换会话）时必须调用。
+     * 之后 KV 里那些「历史中没有的 token」必须作废，否则下一轮会拿着过期前缀去续写。
+     */
+    public void invalidateKv() {
+        kvDirty = false;
+        kvReplayArmed = false;
     }
 
     /** 清空上下文与 KV 缓存（开始新对话）。 */
@@ -335,6 +398,11 @@ public class LlamaEngine {
         final List<ChatMessage> input = new ArrayList<>(messages);
         final Params p = params == null ? new Params() : params;
         final int seed = p.seed >= 0 ? p.seed : (int) (System.nanoTime() & 0x7fffffff);
+        // 回放判定只做一次：脏标记表示「上一轮的产出可被丢弃」，而上一轮已经过去，
+        // 这次生成是否还能回放取决于下一轮怎么用这次的结果，所以立刻清零。
+        final boolean replay = kvDirty && kvReplayArmed;
+        kvDirty = false;
+        kvReplayArmed = true;
 
         worker.execute(() -> {
             final long start = System.currentTimeMillis();
@@ -354,7 +422,8 @@ public class LlamaEngine {
                 final StringBuilder buf = new StringBuilder();
                 final long[] lastFlush = {start};
                 String full = LlamaBridge.nativeGenerate(h, roles, contents,
-                        p.maxTokens, p.temp, p.topP, p.topK, seed, piece -> {
+                        p.maxTokens, p.temp, p.topP, p.topK, seed,
+                        p.repeatPenalty, p.repeatLast, replay, piece -> {
                             count[0]++;
                             final long now = System.currentTimeMillis();
                             if (firstAt[0] == 0) firstAt[0] = now;

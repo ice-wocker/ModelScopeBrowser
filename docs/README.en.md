@@ -59,7 +59,7 @@ rather than hidden.
 
 | Item | Value |
 |---|---|
-| Current version | **v2.7.0** (versionCode 15) |
+| Current version | **v2.8.0** (versionCode 16) |
 | Supported OS | Android 7.0 (API 24) – Android 16 (API 36) |
 | ABI | arm64-v8a (instruction-set tiers), armeabi-v7a (single static build) |
 | Inference backend | llama.cpp `b11205`, CPU only |
@@ -549,7 +549,7 @@ been there all along".
 | `PerfStats` | rolling mean / P90, with an actionable sentence when performance clearly degrades |
 | `MarkdownOutline` | heading outline for long replies |
 
-None of them imports `android.*`, so they are unit-testable on the JVM — 47 new cases, 99 in total after v2.6.0 added 12 localisation cases, and **157** after v2.7.0 added 58 more (tool registry, `apply_patch`, `PathGuard`, `Bm25`, `DiffKit`, SSE parsing).
+None of them imports `android.*`, so they are unit-testable on the JVM — 47 new cases, 99 in total after v2.6.0 added 12 localisation cases, and 157 after v2.7.0 added 58 more (tool registry, `apply_patch`, `PathGuard`, `Bm25`, `DiffKit`, SSE parsing), then **189** after v2.8.0 added 32 (native tool-call parsing, `apply_patch` uniqueness, `Content-Range`).
 
 ![Parameters](assets/params.png)
 
@@ -666,12 +666,12 @@ to anti-scraping. Quality and freshness are whatever the sources give.
 ### 12.3 Common commands
 
 ```bash
-./gradlew testDebugUnitTest        # unit tests (157)
+./gradlew testDebugUnitTest        # unit tests (189)
 ./gradlew lintDebug                # Lint (abortOnError)
 ./gradlew assembleDebug            # debug APK
 ./gradlew assembleRelease          # release APK (R8 + resource shrinking)
 ./gradlew :app:dependencies        # dependency tree
-git tag v2.7.0 && git push --tags  # trigger the Release pipeline
+git tag v2.8.0 && git push --tags  # trigger the Release pipeline
 ```
 
 ### 12.4 Diagnostic order

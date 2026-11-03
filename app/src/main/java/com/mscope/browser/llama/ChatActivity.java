@@ -66,6 +66,7 @@ import io.noties.markwon.Markwon;
 import io.noties.markwon.core.MarkwonTheme;
 import io.noties.markwon.ext.strikethrough.StrikethroughPlugin;
 import io.noties.markwon.ext.tables.TablePlugin;
+import com.mscope.browser.agent.ServerToolCall;
 import com.mscope.browser.i18n.BaseActivity;
 
 /**
@@ -102,6 +103,14 @@ public class ChatActivity extends BaseActivity {
 
     /** 单轮对话里最多允许的工具调用轮数，防止模型反复空转。 */
     private static final int MAX_ROUNDS = 8;
+
+    /**
+     * 一轮里所有工具结果加起来最多占多少字符（≈ 8k token 中文）。
+     *
+     * <p>工具结果只在当轮有效、下一轮就丢，所以它挤占的不是「历史」而是「本轮能不能做完」。
+     * 给到 24000 字：足够放十几次 grep / 读两三个中等文件，又不会把 8k 上下文吃光。
+     */
+    private static final int TOOL_CTX_BUDGET = 24000;
 
     /** 默认上下文窗口。输出上限必须挤在上下文里（上下文 = 提示词/历史 + 本次输出），
      *  所以想放开输出，上下文也要一起放大；KV 已量化为 q8_0，8192 的占用约为原先一半。 */
@@ -712,9 +721,18 @@ public class ChatActivity extends BaseActivity {
      * 只有智能体模式才会真的解析并执行工具；否则退化成单次生成。
      */
     private void runAgent(final int continueFrom) {
+        // 上下文每一轮都从「历史」重建，而不是在上一轮的列表上累加。
+        // 这样这一轮塞进去的工具结果天然是「当轮可见、下一轮不可见」——
+        // 否则工具输出会一直留在上下文里：既白烧上下文，又诱导模型反复调同一个工具。
         final List<ChatMessage> ctx = buildBaseContext();
         int reuse = continueFrom;
         boolean cancelledMidRound = false;
+        /** 本轮用过的原生协议族；决定工具结果怎么包装才被模型认得。 */
+        ServerToolCall.Family family = ServerToolCall.Family.NONE;
+        /** 本轮是否真的执行过工具：只有执行过，KV 才能按「可丢弃上一段输出」处理。 */
+        boolean usedTools = false;
+        /** 最后一版能给人看的正文，用于判断「是不是被长度截断在半句话上」。 */
+        String lastText = "";
 
         for (int round = 0; round < MAX_ROUNDS; round++) {
             if (turnCancelled || !alive) break;
@@ -726,13 +744,25 @@ public class ChatActivity extends BaseActivity {
             if (gen == null) break;                       // 出错或被取消
             if (gen.cancelled) cancelledMidRound = true;   // 用户按了停止：做完收尾就退出，别再继续生成
 
-            final List<ToolCall> calls = agentMode
-                    ? ToolCall.parse(gen.text, AgentTools.names())
-                    : new ArrayList<>();
+            // 先认模型自己的原生工具调用（DSML / [TOOL_CALLS] / <tool_call>），
+            // 认不出来再退回提示词协议。原生协议是模型训练时见过的格式，比让它模仿我们
+            // 写的 <function …> 稳得多 —— 小模型抄格式的失败率远高于直接用原生格式。
+            final ServerToolCall.Parsed nativeCall = agentMode
+                    ? ServerToolCall.parse(gen.text, AgentTools.names())
+                    : ServerToolCall.Parsed.none(gen.text);
+            final String afterNative = nativeCall.family == ServerToolCall.Family.NONE
+                    ? gen.text : nativeCall.visible;
+            final boolean usedNative = nativeCall.hasCalls();
+            final List<ToolCall> calls = usedNative
+                    ? nativeCall.calls
+                    : (agentMode ? ToolCall.parse(afterNative, AgentTools.names())
+                                 : new ArrayList<>());
+            if (usedNative) family = nativeCall.family;
             // 去掉工具调用片段与思考块，只留能给人看的正文
-            final String visible = ToolCall.stripThinking(agentMode
-                    ? ToolCall.strip(gen.text, AgentTools.names())
-                    : gen.text).trim();
+            final String visible = ToolCall.stripThinking(agentMode && !usedNative
+                    ? ToolCall.strip(afterNative, AgentTools.names())
+                    : afterNative).trim();
+            lastText = visible.isEmpty() ? lastText : visible;
             final boolean last = calls.isEmpty();
             final boolean hasPrefix = !TextUtils.isEmpty(gen.prefix);
             // 整轮只有工具调用时删掉空气泡；但「继续生成」已有内容的气泡要保留
@@ -750,8 +780,12 @@ public class ChatActivity extends BaseActivity {
                 break;
             }
 
-            // 模型这轮的原始输出（含调用）留在上下文里，它才知道自己刚才要干什么
+            // 模型这轮的原始输出（含调用）留在本轮上下文里，它才知道自己刚才要干什么
             ctx.add(new ChatMessage(ChatMessage.ASSISTANT, gen.text));
+            // 注意：上面「模型这轮的原始输出」用的是 ASSISTANT 角色，不是 TOOL；
+            // 工具结果也是作为普通 USER 消息塞进去的（多数本地模型模板没有 tool 角色）。
+            // 所以我在这里显式标记本轮新增的工具结果条数，预算只作用于它们。
+            budgetToolContext(ctx, calls.size());
             for (ToolCall c : calls) {
                 if (stoppedBy(gen)) break;
                 final int card = addToolCard(c);
@@ -765,15 +799,73 @@ public class ChatActivity extends BaseActivity {
                         : (stoppedBy(gen) ? getString(R.string.agent_cancelled)
                                           : getString(R.string.agent_denied));
                 updateToolCard(card, result);
-                ctx.add(new ChatMessage(ChatMessage.USER, toolResultText(result)));
+                usedTools = true;
+                ctx.add(new ChatMessage(ChatMessage.USER,
+                        ServerToolCall.responseBlock(family, result, Lang.zh())));
             }
         }
+        if (usedTools) {
+            // 工具结果只在当轮可见 → 上一段 assistant 输出本来就该被忘掉 →
+            // 下一轮可以让原生层沿用公共前缀，而不是换槽位整段重填。
+            engine.markReplayable();
+        }
 
+        if (!usedTools && agentMode && ServerToolCall.looksTruncated(lastText)
+                && !turnCancelled && !cancelledMidRound) {
+            // 原生调用写到一半被长度上限截断：说清楚原因，别让用户以为模型「坏了」。
+            uiSync(() -> addTool(getString(R.string.chat_tool_info), "info",
+                    getString(R.string.agent_truncated_call)));
+        }
         if (agentStep >= MAX_ROUNDS && !turnCancelled && !cancelledMidRound) {
             uiSync(() -> addTool(getString(R.string.chat_tool_info), "info",
                     getString(R.string.agent_max_rounds, MAX_ROUNDS)));
         }
         finishTurn();
+    }
+
+    /**
+     * 工具轮次的上下文预算。
+     *
+     * <p>一轮里每次工具调用都会往 ctx 里塞「模型输出 + 工具结果」，而 ctx 在整轮内只增不减。
+     * 一次 {@code read_file} 就能带回几千字，加上 8 步循环，足以把上下文吃干净 ——
+     * 那时原生层会从头截断 prompt，公共前缀全废，反而更慢，且模型看不到最早的系统提示。
+     *
+     * <p>所以这里做两件事：
+     * <ol>
+     *   <li>单条结果本身已经由 {@code AgentTools} 截到 6000 字；</li>
+     *   <li>整轮工具部分再加一道总量上限：超了就把**最早的工具结果**换成一句占位。
+     *       模型仍然知道「那次调用发生过、结果是长文本、已丢弃」，不至于以为自己没调过。</li>
+     * </ol>
+     */
+    private void budgetToolContext(final List<ChatMessage> ctx, final int addedResults) {
+        if (ctx == null || ctx.isEmpty() || addedResults <= 0) return;
+        // 工具结果位于 ctx 末尾（每轮追加「助手输出 + 若干结果」），只统计这些
+        final int from = Math.max(0, ctx.size() - addedResults);
+        int toolChars = 0;
+        for (int i = from; i < ctx.size(); i++) {
+            toolChars += len(ctx.get(i));
+        }
+        if (toolChars <= TOOL_CTX_BUDGET) return;
+
+        final String placeholder = getString(R.string.agent_tool_trimmed);
+        int dropped = 0;
+        for (int i = from; i < ctx.size() && toolChars > TOOL_CTX_BUDGET; i++) {
+            ChatMessage m = ctx.get(i);
+            String c = m.content == null ? "" : m.content;
+            if (c.length() <= placeholder.length()) continue;
+            toolChars -= c.length() - placeholder.length();
+            m.content = placeholder;
+            dropped++;
+        }
+        if (dropped > 0) {
+            final int n = dropped;
+            uiSync(() -> addTool(getString(R.string.chat_tool_info), "info",
+                    getString(R.string.agent_tool_trimmed_notice, n)));
+        }
+    }
+
+    private static int len(ChatMessage m) {
+        return m == null || m.content == null ? 0 : m.content.length();
     }
 
     /** 请求 = 系统提示（含工具说明与本轮联网资料）+ 历史（跳过工具卡片）。 */
@@ -819,14 +911,6 @@ public class ChatActivity extends BaseActivity {
               .append('\n').append(pendingWebContext);
         }
         return sb.toString();
-    }
-
-    /**
-     * 回灌给模型的工具结果。用 user 角色 + {@code <tool_response>} 包裹：
-     * 这正是 MiniCPM5 / Qwen 等模板里工具返回的标准写法，兼容性最好。
-     */
-    private static String toolResultText(String result) {
-        return "<tool_response>\n" + result + "\n</tool_response>";
     }
 
     private static class Gen {
@@ -1382,6 +1466,9 @@ public class ChatActivity extends BaseActivity {
             return;
         }
         if (TextUtils.isEmpty(messages.get(pos).content)) return;
+        // 续写时上一段输出是**要保留**的，所以不能按回放处理（否则原生层会把它当垃圾扔掉）；
+        // 显式作废后，原生层看到「上一轮输出不在新 prompt 里」会正常换槽位重填。
+        engine.invalidateKv();
         startTurn(pos);        // 追加到同一条气泡，接着往下写
     }
 
@@ -1412,6 +1499,8 @@ public class ChatActivity extends BaseActivity {
         }
         session.align();
         adapter.notifyDataSetChanged();
+        // 历史被改写：KV 里那些「历史中已经没有的 token」必须作废，否则下一轮会拿过期前缀续写
+        engine.invalidateKv();
     }
 
     private void editResend(final int pos) {
@@ -1450,6 +1539,8 @@ public class ChatActivity extends BaseActivity {
         if (pos < stats.size()) stats.remove(pos);
         session.align();
         adapter.notifyDataSetChanged();
+        // 删掉的多半正是上一轮的输出：留着 KV 就会「接着一段已经不存在的文本」继续写
+        engine.invalidateKv();
         persist();
     }
 
@@ -1622,6 +1713,7 @@ public class ChatActivity extends BaseActivity {
                     adapter.notifyDataSetChanged();
                     if (ready) {
                         engine.reset();     // 换了会话，KV 前缀不再适用
+                        engine.invalidateKv();   // reset 之后也不能立刻按回放走
                         updateHint();
                         updateCtx();
                     }

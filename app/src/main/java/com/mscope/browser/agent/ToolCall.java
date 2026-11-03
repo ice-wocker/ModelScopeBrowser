@@ -59,9 +59,9 @@ public class ToolCall {
     public final String name;
     public final JSONObject args;
 
-    private ToolCall(String name, JSONObject args) {
+    ToolCall(String name, JSONObject args) {
         this.name = name;
-        this.args = args;
+        this.args = args == null ? new JSONObject() : args;
     }
 
     /** 取字符串参数；缺失时返回 def。 */

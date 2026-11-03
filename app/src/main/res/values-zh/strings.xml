@@ -281,4 +281,7 @@
     <string name="tool_confirm_cancel">取消</string>
     <string name="chat_todo_cleared">待办板已清空</string>
     <string name="chat_caps_tip">按组开关工具</string>
+    <string name="agent_tool_trimmed">[较早的工具结果已省略以节省上下文]</string>
+    <string name="agent_tool_trimmed_notice">为控制上下文用量，已省略 %1$d 条较早的工具结果。若仍需要，请重新调用对应工具。</string>
+    <string name="agent_truncated_call">模型的原生工具调用写到一半被输出上限截断了。可在「推理参数」里调高最大输出，或把任务拆成更小的步骤再问一次。</string>
 </resources>

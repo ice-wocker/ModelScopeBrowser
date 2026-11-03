@@ -283,4 +283,7 @@
     <string name="tool_confirm_cancel">Cancel</string>
     <string name="chat_todo_cleared">Todo board cleared</string>
     <string name="chat_caps_tip">Grouped tool switches</string>
+    <string name="agent_truncated_call">The reply was cut off in the middle of a native tool call (hit the output limit). Raise &quot;max output&quot; in Inference parameters, or ask again in smaller steps.</string>
+    <string name="agent_tool_trimmed">[earlier tool result dropped to save context]</string>
+    <string name="agent_tool_trimmed_notice">%1$d earlier tool result(s) were dropped to keep the context under budget. Ask again if you still need them.</string>
 </resources>

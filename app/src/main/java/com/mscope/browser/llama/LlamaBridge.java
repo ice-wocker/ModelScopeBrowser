@@ -54,11 +54,17 @@ public final class LlamaBridge {
     /**
      * 流式生成。内部会复用上一轮的 KV 公共前缀，只解码新增 token。
      *
+     * @param repeatPenalty 重复惩罚系数，1.0 表示关闭
+     * @param repeatLast    惩罚窗口（回看多少个 token）
+     * @param replay        允许沿用「上一轮输出不在本次 prompt 里」的前缀。
+     *                      只有在调用方确保「上一轮产出不会进入下一轮历史」时才置 true，
+     *                      否则会把模型的上一段输出当成未来上下文留在 KV 里。
      * @return 完整回复文本；失败返回空串
      */
     public static native String nativeGenerate(long handle, String[] roles, String[] contents,
                                                int maxTokens, float temp, float topP, int topK,
-                                               int seed, TokenCallback callback);
+                                               int seed, float repeatPenalty, int repeatLast,
+                                               boolean replay, TokenCallback callback);
 
     public static native String nativeVersion();
 }

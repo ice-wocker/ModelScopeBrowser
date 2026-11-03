@@ -4,6 +4,113 @@
 
 The full history, newest first.
 
+## v2.8.0 — making native tool calling actually work on a real device
+
+No new tools, no new buttons. This release fixes **three things that made tool calling not work at all**,
+plus two that silently corrupted files or dropped results. All five were in places I assumed were fine.
+
+### 1. Cross-slot KV: two assistant messages in one turn and the model loses "a new turn has started"
+
+Tool calling inherently produces **two consecutive assistant messages** (one saying "I'll call a tool",
+one continuing after the tool result), with a role=tool message in between. After the chat template is
+applied, such a sequence does not necessarily end with an assistant start marker:
+
+- **MiniCPM5**: the template already writes `<|im_start|>` on BOS and writes it again when appending,
+  so the closing marker lands at the start and the append state is empty;
+- **Gemma**: the template does not write `<end_of_turn>`; the append state is `<start_of_turn>model\n`;
+- **DeepSeek-V3.1 / GLM-4.5** emit dedicated markers such as `<|Assistant|>`.
+
+The old implementation appended the next chunk directly after the previous assistant output, which either
+produces `assistant\n assistant` or makes the model treat the tool call as a continuation of its own
+previous sentence — visible as **tool calls never being emitted, or the same call repeating forever**.
+
+Fix: give each new stream its own **KV sequence slot (`llama_seq_id`)**. When the previous turn's trailing
+tokens are not a prefix of the new prompt (i.e. a genuinely new continuation), switch to a different empty
+slot with `pos` restarting at 0, so the two sequences never overwrite each other. The old slot keeps its
+data, so switching back still hits the prefix.
+
+### 2. Native tool calls: `<|DSML|tool_calls>`, `[TOOL_CALLS]`, `<tool_call>` were all unrecognised
+
+Only the prompt protocol was understood (the model copying our `<function name="x">`). But GGUF models that
+ship a function-call template **use the format they were trained on**; asking a small model to imitate a
+made-up format fails far more often. New `agent/ServerToolCall` recognises four native protocols,
+strongest signal first:
+
+| Protocol | Who uses it | Shape |
+|---|---|---|
+| DSML | DeepSeek-V3.1 / GLM-4.5 | `<|DSML|invoke name="x"><|DSML|parameter name="k" string="true">v` |
+| JSON | Hermes / Qwen2.5 / Llama-3.x | `<tool_call>{"name":…,"arguments":…}</tool_call>` |
+| Mistral | Mistral family | `[TOOL_CALLS][{…}]` |
+| Bare JSON | a few models | `{"name":…,"arguments":…}` |
+
+Those DSML tags end with a **single `>`** — not a typo, that is what the official template emits, so it is
+implemented verbatim. Native also now writes the template's assistant start marker once on the first step
+(`<start_of_turn>model`, `<|Assistant|>`, …) so the model sees `assistant\n` instead of inventing it.
+
+> Also fixed a bug only a test would find: the `]` inside `[TOOL_CALLS]` balanced the bracket counter, so
+> "take a balanced JSON array" returned `[TOOL_CALLS]` itself and not a single real argument was read.
+
+### 3. Context grew forever: tool results are now visible only within the turn
+
+`runAgent` used to accumulate "model output + tool results" into ctx; over 8 steps two or three `read_file`
+calls would eat an 8k context, after which native truncated the prompt from the front — destroying the
+shared prefix and getting slower.
+
+Now every round rebuilds the context from **history**, so tool results are inherently "visible this turn,
+gone the next". Two payoffs:
+
+- tool output no longer piles up, and no longer nudges the model to re-call the same tool;
+- "dropping the tool results" is exactly "roll the KV back to before the tool call", so native can treat it
+  as **replayable**: delete only what follows the shared prefix — no slot switch, no full re-prefill.
+  `LlamaEngine` wires this with a dirty flag, and `invalidateKv()` voids it on edit-resend / delete /
+  continue / session switch.
+
+A total budget (24 000 chars) for tool results per turn was added too: past it, the oldest results become a
+one-line placeholder, so the model still knows the call happened but the output was dropped.
+
+### 4. The silent file corrupter: fuzzy matching in `apply_patch`
+
+The old `locate()` had three branches that **sliced the original text with the wrong offsets**:
+
+- CRLF→LF normalisation changes length, yet the normalised index was used to slice the original;
+- the quote-normalisation branch checked the length of `find` but not of `text`;
+- when the exact snippet occurred several times it just `return`ed the first hit, making every uniqueness
+  check below dead code.
+
+A snippet occurring twice is normal (boilerplate, repeated `<div>`), and the edit would land somewhere the
+user did not expect — invisibly. Now every fuzzy strategy accepts **unique matches only**; when uniqueness
+cannot be established the model is asked to retry. CRLF falls back to line-wise location and then slices by
+the **real range in the original**.
+
+### 5. Smaller fixes
+
+- **`Http.download` creates the directory before writing the temp file**: for `<workspace>/downloads/a.bin`
+  the parent may not exist; the old order threw `FileNotFoundException` and the user only saw "download failed".
+- **`Http.download` follows redirects manually, re-checking every hop**: automatic following skips the
+  address check, so a public URL that 302s to a private address turns the phone into a proxy.
+- **Resume validates `Content-Range`**: when the remote file was replaced under the same name, the 206 range
+  does not line up with the local partial file, producing a GGUF that passes the length check and crashes on
+  load. A mismatched start now restarts the download (once only, so it cannot loop).
+- **Repetition penalty (default 1.1)**: 3B-class models loop on long CPU-only output; temperature and
+  top-k/top-p cannot stop that. Set 1.0 in the params to disable.
+
+### Tests and artefacts
+
+- Unit tests 157 → **189**, all green. New `ServerToolCallTest` (16 cases, strings copied verbatim from each
+  vendor's template docs), `PatchKitEdgeTest` (12 cases aimed at "edits the wrong place" and "prefers not to
+  edit"), `ContentRangeTest` (4 cases).
+- `lintDebug` 0 errors; `assembleRelease` passes (R8 + 12 `.so`, all seven arm64 backends present).
+- `versionCode 15 → 16`, `versionName 2.7.0 → 2.8.0`.
+
+### Straight talk
+
+All of the above is compile-time + 189 unit tests + static reasoning, with **no device regression**. The item
+most worth verifying on hardware is #1: install a model with a function-call template (Qwen2.5, a
+DeepSeek-V3.1 distill) and let it call tools three times in a row — watch for repeated calls or answers that
+drift off topic.
+
+---
+
 ## v2.7.0 — 57 tools, and one table behind all of them
 
 ### Agent (the bulk of this release)

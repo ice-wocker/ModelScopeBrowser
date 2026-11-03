@@ -13,7 +13,7 @@
 [![Android](https://img.shields.io/badge/Android-7.0%2B%20(API%2024)-3DDC84?logo=android&logoColor=white)](#)
 [![llama.cpp](https://img.shields.io/badge/llama.cpp-b11205-000000)](#)
 [![i18n](https://img.shields.io/badge/i18n-English%20%C2%B7%20%E4%B8%AD%E6%96%87-4B5563)](#internationalisation)
-[![Tests](https://img.shields.io/badge/tests-157%20passed-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-189%20passed-brightgreen)](#)
 
 [中文](README.md) · [Install](#install) · [Features](#features) · [Usage](#usage) · [How it works](#how-it-works) · [Docs](#documentation) · [Build](#build)
 
@@ -29,7 +29,7 @@ The chat screen is not a toy. It is an **agent that can act**: the model may cal
 search the web, read and write workspace files and preview web pages — then keep reasoning from the real
 results it gets back.
 
-> **Current release v2.7.0** (versionCode 15) · multi-variant arm64 CPU backends · pure CPU offline inference · data never leaves the device
+> **Current release v2.8.0** (versionCode 16) · native tool calling (DSML / `<tool_call>` / `[TOOL_CALLS]`) · cross-slot KV · pure CPU offline inference
 
 ![Architecture](docs/assets/arch.png)
 
@@ -79,6 +79,8 @@ through `i18n/Lang`. Each Activity pins the language in `attachBaseContext`, whi
 **Long output**: 4096 tokens per turn by default (up to 8192), 8192 context by default (up to 32768);
 long-press a reply to **continue generating** even after hitting the cap.
 
+**Native tool calling**: GGUF models that ship a function-call template no longer have to imitate a format we invented. `agent/ServerToolCall` recognises four of the model's own protocols, strongest signal first — DeepSeek-V3.1 / GLM-4.5 DSML, Hermes / Qwen / Llama `<tool_call>`, Mistral `[TOOL_CALLS]`, bare JSON — and only falls back to the prompt protocol when none matches. Tool results are **visible only within the turn**, which saves context and lets the KV be treated as replayable (delete only past the shared prefix; no slot switch, no full re-prefill). When one turn contains two assistant messages, native switches to a separate KV slot so the model clearly sees that a new turn has started — the precondition for chained tool calls.
+
 | | |
 |---|---|
 | ![](docs/assets/ui-list.png) | ![](docs/assets/ui-chat.png) |
@@ -93,7 +95,7 @@ long-press a reply to **continue generating** even after hitting the cap.
 
 | Channel | Notes |
 |---|---|
-| **[Releases](https://github.com/ice-wocker/ModelScopeBrowser/releases)** | Recommended. Latest **v2.7.0** `ModelScope-Models-2.7.0.apk`, built by CI and properly signed (~**8.2 MB**) |
+| **[Releases](https://github.com/ice-wocker/ModelScopeBrowser/releases)** | Recommended. Latest **v2.8.0** `ModelScope-Models-2.8.0.apk`, built by CI and properly signed (~**8.2 MB**) |
 | **[Actions artifacts](https://github.com/ice-wocker/ModelScopeBrowser/actions)** | Every push produces an `apk` artifact containing both debug and release builds |
 
 - Requires **Android 7.0 (API 24)** or newer; allow “install unknown apps” for the first install
