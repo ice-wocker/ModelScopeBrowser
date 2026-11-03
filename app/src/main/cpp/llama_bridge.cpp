@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <mutex>
@@ -119,6 +120,8 @@ struct Session {
     llama_batch        batch{};
 
     /// 当前 KV 中已存在的 token 序列（位置 0..size-1），用于跨轮复用公共前缀。
+    /// 只记录「prompt 部分」：生成的 token 也写进了 KV，但它们不属于任何一轮的 prompt，
+    /// 下一轮的前缀匹配必须看不见它们，否则命中位置会整体错位（见 nativeGenerate 的说明）。
     std::vector<llama_token> kv;
 
     std::atomic<bool>  cancel{false};
@@ -490,7 +493,8 @@ Java_com_mscope_browser_llama_LlamaBridge_nativeBuildPrompt(
 JNIEXPORT jstring JNICALL
 Java_com_mscope_browser_llama_LlamaBridge_nativeGenerate(
         JNIEnv *env, jclass, jlong handle, jobjectArray jRoles, jobjectArray jContents,
-        jint maxTokens, jfloat temp, jfloat topP, jint topK, jint seed, jobject callback) {
+        jint maxTokens, jfloat temp, jfloat topP, jint topK, jint seed,
+        jint repeatLastN, jfloat repeatPenalty, jobject callback) {
     std::unique_lock<std::mutex> lock;
     Session *s = acquire(handle, lock);
     if (s == nullptr || s->ctx == nullptr) {
@@ -528,35 +532,45 @@ Java_com_mscope_browser_llama_LlamaBridge_nativeGenerate(
     }
 
     // ---- 3. KV 前缀复用 ----
-    // 关键点：s->kv[i] 必须真的位于位置 i。上一轮生成结束后 KV 里还留着「上一轮输出」的 token，
-    // 如果直接在这段序列上匹配前缀，命中位置就会整体错位，llama_memory_seq_rm 会删错区间，
-    // 之后 decode 的位置与 KV 实际内容不一致 —— 轻则答非所问，重则采样崩溃。
-    // 所以先用公共前缀的 token 重建一份「按位置对齐」的序列，再做（带位置的）删除。
+    // 不变式：s->kv 记录的是「上一轮 prompt 的 token」，且 s->kv[i] 真的位于位置 i。
+    //
+    // 上一轮生成结束后 KV 里还多留着那一轮的输出 token，它们不在 s->kv 里。这正是关键：
+    // 前缀只跟「历史 prompt」比，命中长度永远不会超过历史 prompt 的长度，而历史 prompt 是
+    // 新 prompt 的真前缀（新 prompt 只是在其后追加了一条 assistant 消息），所以
+    // [n_common, 新序列末尾) 这段位置上的旧 KV 要么不存在、要么一定会被覆盖 —— 不会错位。
+    //
+    // 反过来，如果把生成的 token 也并进 s->kv 一起匹配，命中位置就会落进上一轮的输出里：
+    //   · 新 prompt 的 [i] 与上一轮输出 [i] 恰好相同（很长），于是「命中」了本不该命中的区间；
+    //   · 随后 llama_memory_seq_rm 删掉的是别的区间；
+    //   · 留下的 KV 位置与 s->kv 记录对不上，decode 的位置与真实内容错位。
+    // 表现形式就是同一个问题重复调用同一个工具、或者答非所问，且越是「历史整段保留」的
+    // 模板（带 function-call 的模型）越容易触发。
     int32_t n_common = 0;
     {
         const int32_t nKv = static_cast<int32_t>(s->kv.size());
         const int32_t lim = std::min<int32_t>(static_cast<int32_t>(tokens.size()), nKv);
         while (n_common < lim && s->kv[n_common] == tokens[n_common]) ++n_common;
 
-        // 整个 prompt 都命中时，需要回退一位重新解码，才能拿到用于采样的 logits
-        if (n_common == static_cast<int32_t>(tokens.size()) && n_common > 0) n_common--;
+        // 整份 prompt 都命中时，必须回退一位重新解码，否则拿不到用于采样的 logits
+        if (n_common >= static_cast<int32_t>(tokens.size()) && n_common > 0) n_common--;
 
+        // 命中之后那段 KV 里可能还压着上一轮的输出 token，与本次内容不同：一律删掉重算。
+        // 这既保证下一个 token 的 logits 正确，也让 s->kv 与真实 KV 内容保持一一对应。
         if (n_common < nKv) {
-            std::vector<llama_token> keep(tokens.begin(), tokens.begin() + n_common);
             if (!llama_memory_seq_rm(s->mem, 0, n_common, -1)) {
                 // 部分删除不被支持（循环/混合结构），退回整体清空
                 llama_memory_clear(s->mem, true);
-                keep.clear();
+                n_common = 0;
             }
-            s->kv.swap(keep);
         }
-        n_common = static_cast<int32_t>(s->kv.size());
+        s->kv.assign(tokens.begin(), tokens.begin() + n_common);
     }
 
     // 超长历史：native 层只保留末尾预算。与上层「按消息裁剪」互为兜底。
     if (static_cast<int32_t>(tokens.size()) > budgetInput) {
         tokens.erase(tokens.begin(), tokens.end() - budgetInput);
-        if (n_common > budgetInput) {
+        if (n_common > 0) {
+            // 截断后位置 0 对应的 token 变了，前缀不再成立；把这段 KV 一起作废重算。
             llama_memory_clear(s->mem, true);
             s->kv.clear();
             n_common = 0;
@@ -572,12 +586,20 @@ Java_com_mscope_browser_llama_LlamaBridge_nativeGenerate(
             return finish(u"");
         }
     }
+    // 兜底：预填充路径若自己动过 KV（分块删除/清空），把记录重新对齐一次。
+    // 这里只记录 prompt 部分 —— 生成的 token 由 decodeNext 追加进 KV，但不进 s->kv。
     s->kv.assign(tokens.begin(), tokens.end());
 
     // ---- 5. 采样器链 ----
     llama_sampler_chain_params sp = llama_sampler_chain_default_params();
     sp.no_perf = true;
     llama_sampler *smpl = llama_sampler_chain_init(sp);
+    // 顺序：重复惩罚必须排在截断之前。它要看到的是「模型原来的分布」，
+    // 放到 top-k/top-p 之后就只能惩罚已经被截断的候选，几乎不起作用。
+    if (repeatLastN > 0 && repeatPenalty > 0.0f && std::fabs(repeatPenalty - 1.0f) > 1e-6f) {
+        llama_sampler_chain_add(smpl, llama_sampler_init_penalties(
+                repeatLastN, repeatPenalty, 0.0f, 0.0f));
+    }
     if (topK > 0) llama_sampler_chain_add(smpl, llama_sampler_init_top_k(topK));
     if (topP > 0.0f && topP < 1.0f) llama_sampler_chain_add(smpl, llama_sampler_init_top_p(topP, 1));
     if (temp > 0.0f) llama_sampler_chain_add(smpl, llama_sampler_init_temp(temp));

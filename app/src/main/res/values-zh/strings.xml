@@ -137,6 +137,7 @@
     <string name="p_temp">随机性 temperature</string>
     <string name="p_top_p">Top-P</string>
     <string name="p_top_k">Top-K</string>
+    <string name="p_repeat_penalty">重复惩罚</string>
     <string name="p_ctx">上下文窗口</string>
     <string name="p_ctx_tip">输出必须挤在上下文里（上下文 = 提示词/历史 + 本次输出），所以这里给的默认是「上下文 8192 / 最长输出 4096」。上下文越大越能吃长对话，但内存占用也越高（KV 已量化为 q8_0，约为原来的 1/2）；小内存机型建议 4096。</string>
     <string name="p_ctx_device_tip">本机建议：%1$s</string>
@@ -162,6 +163,8 @@
     <string name="agent_denied">用户拒绝了这次操作，请换一种方式，或直接说明无法完成。</string>
     <string name="agent_cancelled">用户已停止本轮操作，该工具未执行。</string>
     <string name="agent_max_rounds">已达到单轮工具调用上限（%1$d 步），先给出当前结论。</string>
+    <string name="agent_repeat">这个调用在本轮已经执行过，未重复执行。请直接使用上面的结果，或换一组参数。</string>
+    <string name="agent_repeat_stop">同一个工具调用重复了 %1$d 次，已中止，避免空转。可以把目标说得更具体一些，或调整模型与上下文。</string>
     <string name="chat_searching">正在联网检索…</string>
     <string name="chat_tool_search">联网搜索</string>
     <string name="chat_tool_file">文件</string>

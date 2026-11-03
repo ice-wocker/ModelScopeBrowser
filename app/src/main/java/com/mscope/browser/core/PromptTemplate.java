@@ -92,10 +92,12 @@ public final class PromptTemplate {
                     ? "\n\n要动手就输出：<function name=\"工具\"><param name=\"参数\">值</param></function>\n"
                     + "可用：" + oneLine(list) + "\n"
                     + "之后会收到 <tool_response> 结果，据此继续作答；不需要工具就直接回答。"
+                    + NO_REPEAT_ZH
                     : "\n\nTo act, output: <function name=\"tool\"><param name=\"arg\">value</param></function>\n"
                     + "Available: " + oneLine(list) + "\n"
                     + "You will then receive a <tool_response> result; continue from it. "
-                    + "If no tool is needed, just answer.";
+                    + "If no tool is needed, just answer."
+                    + NO_REPEAT_EN;
         }
         return zh
                 ? "\n\n你可以调用工具在手机本机上完成任务。需要实时信息或本机操作时，直接输出下面这种调用"
@@ -104,13 +106,32 @@ public final class PromptTemplate {
                 + "可用工具：\n" + list + "\n"
                 + "调用后会收到一条 <tool_response> 结果（里面是真实执行结果），然后据此继续作答；"
                 + "不需要工具时直接回答，不要输出调用。"
+                + NO_REPEAT_ZH
                 : "\n\nYou can call tools to complete tasks on the user's phone. For live information or "
                 + "on-device actions, emit calls like the following (do not wrap them in code fences; "
                 + "several per turn are fine):\n\n"
                 + "<function name=\"tool_name\"><param name=\"arg_name\">value</param></function>\n\n"
                 + "Available tools:\n" + list + "\n"
                 + "You will receive one <tool_response> with the real execution result; continue from it. "
-                + "When no tool is needed, answer directly without emitting any call.";
+                + "When no tool is needed, answer directly without emitting any call."
+                + NO_REPEAT_EN;
+    }
+
+    /**
+     * 「别重复调用」这条约束。
+     *
+     * <p>小模型看到工具结果后最典型的行为是把同一个调用再发一次（它以为结果没给到）。
+     * 宿主侧已经有闸门会拦住重复执行，但提示词里说清楚能让它少走一步：
+     * 结果已经在上下文里了，直接用，不要重发。
+     */
+    public static final String NO_REPEAT_ZH =
+            "\n同一轮里已经执行过的调用不要重复发起：结果就在 <tool_response> 里，直接用它继续。";
+    public static final String NO_REPEAT_EN =
+            "\nDo not re-issue a call that already ran in this turn: its result is right there in "
+            + "<tool_response>; continue from it.";
+    /** 按当前界面语言取「别重复调用」那条约束。 */
+    public static String noRepeatRule() {
+        return Lang.zh() ? NO_REPEAT_ZH : NO_REPEAT_EN;
     }
 
     /** 把多行工具清单压成一行，省 token。 */

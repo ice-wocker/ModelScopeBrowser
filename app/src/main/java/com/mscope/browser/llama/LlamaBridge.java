@@ -54,11 +54,14 @@ public final class LlamaBridge {
     /**
      * 流式生成。内部会复用上一轮的 KV 公共前缀，只解码新增 token。
      *
+     * @param repeatLastN     重复惩罚窗口（0 关闭）
+     * @param repeatPenalty   重复惩罚系数（1.0 表示不惩罚）
      * @return 完整回复文本；失败返回空串
      */
     public static native String nativeGenerate(long handle, String[] roles, String[] contents,
                                                int maxTokens, float temp, float topP, int topK,
-                                               int seed, TokenCallback callback);
+                                               int seed, int repeatLastN, float repeatPenalty,
+                                               TokenCallback callback);
 
     public static native String nativeVersion();
 }

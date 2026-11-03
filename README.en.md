@@ -29,7 +29,7 @@ The chat screen is not a toy. It is an **agent that can act**: the model may cal
 search the web, read and write workspace files and preview web pages — then keep reasoning from the real
 results it gets back.
 
-> **Current release v2.7.0** (versionCode 15) · multi-variant arm64 CPU backends · pure CPU offline inference · data never leaves the device
+> **Current release v2.8.0** (versionCode 16) · multi-variant arm64 CPU backends · pure CPU offline inference · data never leaves the device
 
 ![Architecture](docs/assets/arch.png)
 

@@ -21,6 +21,9 @@ public final class Validators {
     public static final int CTX_MAX = 32768;
     public static final int MAX_TOKENS_MAX = 8192;
     public static final float TEMP_MAX = 2f;
+    /** 重复惩罚窗口上限：窗口越大，越会压到「本就该重复」的内容（列表、代码缩进）。 */
+    public static final int REPEAT_LAST_N_MAX = 512;
+    public static final float REPEAT_PENALTY_MAX = 2f;
 
     /** 采样参数集合，与引擎字段一一对应。 */
     public static final class Sampling {
@@ -29,13 +32,24 @@ public final class Validators {
         public float topP;
         public int topK;
         public int nCtx;
+        /** 重复惩罚窗口（0 = 关闭）。 */
+        public int repeatLastN;
+        /** 重复惩罚系数（1.0 = 不惩罚）。 */
+        public float repeatPenalty;
 
         public Sampling(int maxTokens, float temp, float topP, int topK, int nCtx) {
+            this(maxTokens, temp, topP, topK, nCtx, 0, 1f);
+        }
+
+        public Sampling(int maxTokens, float temp, float topP, int topK, int nCtx,
+                        int repeatLastN, float repeatPenalty) {
             this.maxTokens = maxTokens;
             this.temp = temp;
             this.topP = topP;
             this.topK = topK;
             this.nCtx = nCtx;
+            this.repeatLastN = repeatLastN;
+            this.repeatPenalty = repeatPenalty;
         }
     }
 
@@ -89,6 +103,25 @@ public final class Validators {
             notes.append(zh ? "top-p 必须大于 0，已改回 1；" : "top-p must be > 0, reset to 1; ");
         }
         if (topP != s.topP) s.topP = topP;
+
+        // 重复惩罚：窗口 0 视为关闭；系数收到 1.0~2.0。
+        // 低于 1.0 等于「鼓励重复」，那是另一种故障（复读），不开放给输入框。
+        int lastN = clamp(s.repeatLastN, 0, REPEAT_LAST_N_MAX);
+        if (lastN != s.repeatLastN) {
+            notes.append(zh ? "重复惩罚窗口收敛到 " + lastN + "；"
+                            : "repetition window clamped to " + lastN + "; ");
+            s.repeatLastN = lastN;
+        }
+        if (Float.isNaN(s.repeatPenalty)) s.repeatPenalty = 1f;
+        float penalty = clamp(s.repeatPenalty, 1f, REPEAT_PENALTY_MAX);
+        if (penalty != s.repeatPenalty) {
+            notes.append(zh
+                    ? "重复惩罚收敛到 " + fmt(penalty) + "（1.00 表示不惩罚）；"
+                    : "repetition penalty clamped to " + fmt(penalty) + " (1.00 means off); ");
+            s.repeatPenalty = penalty;
+        }
+        if (s.repeatLastN == 0) s.repeatPenalty = 1f;      // 窗口关闭时系数无意义，统一归 1
+
         String out = notes.toString().trim();
         // 去掉末尾的分隔符（中文「；」/ 英文「;」）
         if (out.endsWith("；")) out = out.substring(0, out.length() - 1);

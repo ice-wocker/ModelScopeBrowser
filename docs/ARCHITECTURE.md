@@ -74,17 +74,24 @@ onSendClicked()
   └─ 普通对话 → generateBlocking()
 
 agentLoop()
+  guard = ToolGuard()                        ← 本轮防打转
   for step in 1..8:
     gen = generateBlocking(ctx)              ← 阻塞等这一轮生成完
     若已停止 → break
-    calls = ToolCall.parse(gen.text)
+    calls = ToolCall.parse(gen.text, AgentTools.enabled(web, files, shell))
     若无调用 → 这就是最终回答，break
     对每个调用：
-      命中已注册工具？ 否 → 忽略（防止普通 JSON 被误执行）
+      已注册且已启用？ 否 → 忽略（防止普通 JSON 被误执行）
+      本轮已执行过同样调用（工具名 + 参数指纹）？ 是 → 不执行，回一条「已执行过」
       需要确认？ → 弹窗（允许 / 拒绝 / 本会话都允许）
-      执行 → 得到文本结果
-      结果以 <tool_response> 追加进 ctx
+      执行 → 得到文本结果（超过 6k 字符按完整字符截断）
+    **把「这一轮的调用」与「所有结果」合并成一条 assistant 消息**追加进 ctx
+      —— 同角色相邻会让 function-call 模板以为「新一轮开始了」，模型就看不见结果
+    guard 判定已在打转（重复 ≥ 2）→ 收尾，不再喂
 ```
+
+关键不变量：**同一个 role 不能在 ctx 里连续出现两次**。`buildBaseContext()` 用
+`appendMerged()` 保证这一点（历史里相邻的助手消息、用户连发两条都会被合并）。
 
 ### 3.3 生成一轮
 
@@ -106,7 +113,7 @@ LlamaEngine.generate(msgs, params, listener)
 |---|---|---|
 | `nativeInit(modelPath, nCtx, nThreads, nBatchThreads, backendDir)` | 加载模型 + 建 context | 返回 handle，0 表示失败 |
 | `nativeFree(handle)` | 释放 | 引用计数，最后一个持有者销毁 |
-| `nativeGenerate(handle, roles, contents, maxTokens, temp, topP, topK, seed, cb)` | 生成 | 阻塞直到结束或被取消 |
+| `nativeGenerate(handle, roles, contents, maxTokens, temp, topP, topK, seed, repeatLastN, repeatPenalty, cb)` | 生成 | 阻塞直到结束或被取消；重复惩罚窗口 0 表示关闭 |
 | `nativeCancel(handle)` | 取消 | 置标志位，采样循环每个 token 检查 |
 | `nativeReset(handle)` | 清空 KV | 新会话用 |
 | `nativeBuildPrompt(handle, roles, contents)` | 套模板 | 供 token 估算复用 |

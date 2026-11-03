@@ -72,6 +72,21 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
+        android:hint="@string/p_repeat_penalty">
+
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/etRepeatPenalty"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="numberDecimal"
+            android:maxLines="1" />
+    </com.google.android.material.textfield.TextInputLayout>
+
+    <com.google.android.material.textfield.TextInputLayout
+        style="@style/Widget.Material3.TextInputLayout.OutlinedBox.Dense"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
         android:hint="@string/p_ctx">
 
         <com.google.android.material.textfield.TextInputEditText

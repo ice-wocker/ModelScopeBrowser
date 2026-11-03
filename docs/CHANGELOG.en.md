@@ -4,6 +4,72 @@
 
 The full history, newest first.
 
+## v2.8.0 — making "the agent can call tools" actually work on models with a function-call template
+
+No new features. This release is about one class of problem: **things that are claimed to work but
+fail silently**. The clearest example is tool calling — the model calls a tool, the tool runs, and
+the model never sees the result, so it calls again.
+
+### Why the result never reached the model
+
+Three causes stacked on top of each other; each one alone is enough to break the loop:
+
+1. **Cross-slot KV** (native). After a turn, the KV cache still holds that turn's output tokens while
+   `s->kv` only records the prompt. If the next prefix match also counts the generated tokens, the
+   match lands inside the previous turn's output — the KV deletion removes the wrong range and decode
+   positions drift away from the real contents. The symptom is "answers the wrong question, calls the
+   same tool again", and it hits *harder* on templates that keep the whole history. Now `s->kv`
+   records **only the prompt**; generated tokens are appended to the KV by `decodeNext` but stay out
+   of the record, so the matched prefix can never be longer than the previous prompt.
+2. **The native protocol was not honoured** (Java). Tool results were fed back with the `user` role,
+   producing `assistant(call) / user(result) / user(next)`. Templates with function-call support
+   (Qwen / DeepSeek / MiniCPM) render per *turn*; two messages of the same role make them emit
+   "end of turn + start of new turn" in between, and the earlier message is cut off. The assistant
+   output and the tool results are now **merged into a single assistant message** (results wrapped in
+   `<tool_response>`), and adjacent same-role history messages are merged too.
+3. **Context only grew** (Java). Results were fed back whole, so one `cat` or one fetched page could
+   push the history out of the context window; the trimming then quietly dropped the oldest messages,
+   and a model that suddenly sees a gap is *more* likely to re-issue a call. Results are now capped at
+   6k characters (the card in the UI still shows everything) and repeated calls are gated.
+
+### Three layers of anti-spin protection
+
+- **Prompt**: `PromptTemplate.noRepeatRule()` states, in both languages, not to re-issue a call that
+  already ran.
+- **Host**: new `core/ToolGuard` — the same call (tool name plus a key-order-independent argument
+  fingerprint) runs at most twice per turn, and two repeats end the turn. The fingerprint sorts the
+  arguments, so reordering keys does not get around it.
+- **Sampling**: a repetition penalty (window 128 / factor 1.08, adjustable in the parameters dialog)
+  plus a loop breaker in the engine: if the output stops growing for 6 seconds it is cancelled
+  asynchronously instead of burning all 4096 tokens.
+
+### Other things made real
+
+- **One source of truth for the tool list**: `AgentTools.enabled(web, files, shell)`; parsing,
+  stripping and the prompt all read it. Turning the web off used to remove `web_search` from the
+  prompt while the parser still accepted it — the model called an endpoint that could only fail.
+- **Explicit prefix invalidation**: changing sampling parameters, the system prompt, or the web
+  switch now calls `invalidatePrefix()`, instead of letting the engine recompute a long prefix from
+  the first differing token.
+- **Faster trimming**: dropping one message at a time and re-tokenising everything cost hundreds of
+  milliseconds before a long turn. Now a rough token estimate decides how much to drop, then a binary
+  search verifies it — and the current user message is never dropped.
+- **Sampling validation**: `Validators.Sampling` gained the repetition window and factor; closing the
+  window forces the factor to 1, and it is clamped to 1.0–2.0 (below 1 encourages repetition). The
+  parameters dialog has a new "Repetition penalty" field.
+
+### Tests
+
+- New `core/ToolGuardTest` (10 cases), new `agent/AgentToolsTest` (6 cases),
+  plus 3 in `CoreKitTest` and 1 in `Bi18nTest`.
+- 99 → **118 unit tests, all green**.
+
+### Docs
+
+- `versionCode 15 → 16`, `versionName 2.7.0 → 2.8.0`.
+
+---
+
 ## v2.6.0 — English/Chinese bilingual everywhere
 
 ### UI and strings

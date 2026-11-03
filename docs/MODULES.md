@@ -6,7 +6,7 @@
 读完这一页，你应该能独立改这个仓库里的任何一处逻辑，而不必先通读全部源码。
 
 目录：
-[1 ModelApi](#1-modelapi--接口与降级) · [2 DownloadCenter](#2-downloadcenter--下载与续传) · [3 LocalModelStore](#3-localmodelstore--索引与原子写) · [4 Workspace](#4-workspace--文件系统收敛) · [5 Shell](#5-shell--真-shell) · [6 ToolCall](#6-toolcall--协议解析) · [7 AgentTools](#7-agenttools--工具执行) · [8 WebSearch](#8-websearch--联网检索) · [9 LlamaEngine](#9-llamaengine--会话管理) · [10 llama_bridge](#10-llama_bridgecpp--jni-桥接) · [11 ChatActivity](#11-chatactivity--对话页) · [12 MemoryBudget](#12-memorybudget--上下文预算) · [13 StorageGuard](#13-storageguard--存储体检) · [14 FsKit](#14-fskit--文件操作) · [15 Validators](#15-validators--输入收敛) · [16 PromptTemplate](#16-prompttemplate--提示词) · [17 TextKit](#17-textkit--文本工具) · [18 PerfStats](#18-perfstats--性能统计) · [19 MarkdownOutline](#19-markdownoutline--大纲)
+[1 ModelApi](#1-modelapi--接口与降级) · [2 DownloadCenter](#2-downloadcenter--下载与续传) · [3 LocalModelStore](#3-localmodelstore--索引与原子写) · [4 Workspace](#4-workspace--文件系统收敛) · [5 Shell](#5-shell--真-shell) · [6 ToolCall](#6-toolcall--协议解析) · [7 AgentTools](#7-agenttools--工具执行) · [8 WebSearch](#8-websearch--联网检索) · [9 LlamaEngine](#9-llamaengine--会话管理) · [10 llama_bridge](#10-llama_bridgecpp--jni-桥接) · [11 ChatActivity](#11-chatactivity--对话页) · [12 MemoryBudget](#12-memorybudget--上下文预算) · [13 StorageGuard](#13-storageguard--存储体检) · [14 FsKit](#14-fskit--文件操作) · [15 Validators](#15-validators--输入收敛) · [16 PromptTemplate](#16-prompttemplate--提示词) · [17 TextKit](#17-textkit--文本工具) · [18 PerfStats](#18-perfstats--性能统计) · [19 MarkdownOutline](#19-markdownoutline--大纲) · [20 ToolGuard](#20-toolguard--防打转闸门)
 
 ## 1 ModelApi · 接口与降级
 
@@ -741,3 +741,40 @@ return markdown.length() > 800 && extract(markdown).size() >= 2;
 不确定空间够不够就写 `StorageGuard`；不确定文件是不是模型就读魔数；
 不确定参数合不合法就跑一趟 `Validators`。每一次把猜测换成检查，
 就少一个「偶尔不对、但复现不出来」的 bug。
+
+## 20 ToolGuard · 防打转闸门
+
+**要解决什么**：本地小模型拿到工具结果后重复同一个调用。它并不真的「记得」自己刚读过那个文件，
+所以再发一次；不拦的话一轮 8 步全用在同一个调用上，最后什么答案都没有。
+
+### 20.1 判重要与参数顺序无关
+
+模型给同一件事的参数排序千变万化：
+
+```text
+{"path": "a.txt", "content": "hi"}   ← 第一次
+{"content": "hi", "path": "a.txt"}   ← 第二次，其实是同一个调用
+```
+
+直接比 JSON 字符串会把它们当成两个，闸门形同虚设。`ToolGuard.canonicalArgs()`
+先把键转小写、值去空白，再按字典序排成 `content=hi;path=a.txt`。
+
+### 20.2 三道闸门，各管一段
+
+| 层 | 手段 | 作用 |
+|---|---|---|
+| 提示词 | `PromptTemplate.noRepeatRule()` | 让模型少走一步（成本一句话） |
+| 宿主 | `ToolGuard` | 同一调用最多真执行 2 次，重复 2 次收尾 |
+| 采样 | 重复惩罚 + 复读熔断 | 连文字层面的复读也掐掉 |
+
+只管一层都不够：提示词拦不住「模型就是不听话」，闸门拦不住「模型换个写法继续试」，
+采样惩罚又收不了场。
+
+### 20.3 为什么上限是 2 而不是 1
+
+有些调用本来就该来两次：先读、改完再读回来确认。一次就拦会误伤这条最正常的用法。
+
+### 20.4 超长参数
+
+写大文件的 `content` 可能几万字符。指纹只取前 `MAX_ARGS` 个字符，并且**按完整字符截断**
+（不切断 emoji 的代理对）——判重不需要全文，但截出来的键要能看懂。

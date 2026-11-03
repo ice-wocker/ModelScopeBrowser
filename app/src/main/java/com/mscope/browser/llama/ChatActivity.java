@@ -43,12 +43,17 @@ import com.mscope.browser.i18n.Lang;
 import com.mscope.browser.core.MemoryBudget;
 import com.mscope.browser.core.PerfStats;
 import com.mscope.browser.core.PromptTemplate;
+import com.mscope.browser.core.TextKit;
+import com.mscope.browser.core.ToolGuard;
 import com.mscope.browser.core.Validators;
 import com.mscope.browser.local.LocalModel;
+
+import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -95,6 +100,20 @@ public class ChatActivity extends BaseActivity {
 
     /** 单轮对话里最多允许的工具调用轮数，防止模型反复空转。 */
     private static final int MAX_ROUNDS = 8;
+
+    /**
+     * 工具结果之后补的一句提醒。
+     *
+     * <p>小模型拿到一长串结果后容易「忘记自己刚才要干什么」，进而再调一次同样的工具。
+     * 这句固定追加在结果后面，成本只有一个短句，但显著降低原地打转的概率。
+     */
+    private static String toolResultReminder() {
+        return Lang.zh()
+                ? "\n\n(工具已执行完毕。请根据上面的真实结果继续下一步；"
+                + "不要重复执行刚刚已经完成的操作，已经做完就直接给出最终回答。)"
+                : "\n\n(The tool has finished. Continue from the real result above; do not repeat an "
+                + "operation that already succeeded — if the task is done, give the final answer now.)";
+    }
 
     /** 默认上下文窗口。输出上限必须挤在上下文里（上下文 = 提示词/历史 + 本次输出），
      *  所以想放开输出，上下文也要一起放大；KV 已量化为 q8_0，8192 的占用约为原先一半。 */
@@ -409,8 +428,20 @@ public class ChatActivity extends BaseActivity {
         toolWeb = !toolWeb;
         prefs.edit().putBoolean(KEY_TOOL_WEB, toolWeb).apply();
         updateChipWeb();
+        invalidatePrefix();
         Toast.makeText(this, toolWeb ? R.string.chat_web_on : R.string.chat_web_off,
                 Toast.LENGTH_SHORT).show();
+    }
+
+    /**
+     * 系统提示词/参数变了，KV 里的公共前缀就不再成立。
+     *
+     * <p>不清也能算对（原生层会从第一个不同的 token 开始重算），但那是「白算」：
+     * 前缀越靠前，重算越长。这里显式清掉，语义也更直白 —— 新的设定，新的上下文。
+     * 生成中不动：正在跑的那一轮由它自己收尾，结束后自然会按新设定重算。
+     */
+    private void invalidatePrefix() {
+        if (ready && !generating) engine.reset();
     }
 
     private void updateChipWeb() {
@@ -548,8 +579,12 @@ public class ChatActivity extends BaseActivity {
      */
     private void runAgent(final int continueFrom) {
         final List<ChatMessage> ctx = buildBaseContext();
+        // 本轮已经执行过的调用（名字 + 参数），用于识别「原地打转」：
+        // 小模型拿到工具结果后仍可能重复同一个调用，不拦就会把整个轮次配额烧光。
+        final ToolGuard guard = new ToolGuard();
         int reuse = continueFrom;
         boolean cancelledMidRound = false;
+        boolean converged = false;
 
         for (int round = 0; round < MAX_ROUNDS; round++) {
             if (turnCancelled || !alive) break;
@@ -561,12 +596,13 @@ public class ChatActivity extends BaseActivity {
             if (gen == null) break;                       // 出错或被取消
             if (gen.cancelled) cancelledMidRound = true;   // 用户按了停止：做完收尾就退出，别再继续生成
 
+            final Set<String> toolNames = enabledTools();
             final List<ToolCall> calls = agentMode
-                    ? ToolCall.parse(gen.text, AgentTools.names())
+                    ? ToolCall.parse(gen.text, toolNames)
                     : new ArrayList<>();
             // 去掉工具调用片段与思考块，只留能给人看的正文
             final String visible = ToolCall.stripThinking(agentMode
-                    ? ToolCall.strip(gen.text, AgentTools.names())
+                    ? ToolCall.strip(gen.text, toolNames)
                     : gen.text).trim();
             final boolean last = calls.isEmpty();
             final boolean hasPrefix = !TextUtils.isEmpty(gen.prefix);
@@ -578,6 +614,7 @@ public class ChatActivity extends BaseActivity {
             applyAssistantText(gen.index, shown, last || hasPrefix);
 
             if (last) {                                    // 没有工具调用：这就是最终答案
+                converged = true;
                 if (!TextUtils.isEmpty(visible)) {
                     final String v = visible;
                     uiSync(() -> autoSaveFiles(v));
@@ -585,26 +622,49 @@ public class ChatActivity extends BaseActivity {
                 break;
             }
 
-            // 模型这轮的原始输出（含调用）留在上下文里，它才知道自己刚才要干什么
-            ctx.add(new ChatMessage(ChatMessage.ASSISTANT, gen.text));
+            // 模型这一轮的输出（含调用）要留在上下文里，它才知道自己刚才要干什么。
+            // 但**必须与下一条工具结果合并成同一条消息**：一旦出现两条连续的同类角色消息，
+            // 带 function-call 模板的模型（Qwen / DeepSeek / MiniCPM 的默认模板）会把后一条
+            // 当成「新一轮对话的开始」，前面那句「我刚才调了工具」就被截断在上一轮里，
+            // 表现就是看不见结果、重复调用同一个工具。
+            final StringBuilder turn = new StringBuilder(gen.text == null ? "" : gen.text);
+            boolean executedThisRound = false;
             for (ToolCall c : calls) {
                 if (stoppedBy(gen)) break;
                 final int card = addToolCard(c);
                 if (card < 0) break;                       // 界面已销毁
-                boolean ok = true;
-                if (AgentTools.risky(c.name) && !allowAllWrites) ok = confirmTool(c);
-                // 确认期间用户可能按了停止：这里再拦一次，避免「点了停止却仍在执行命令」。
-                if (ok && stoppedBy(gen)) ok = false;
-                final String result = ok
-                        ? agentTools.exec(c)
-                        : (stoppedBy(gen) ? getString(R.string.agent_cancelled)
-                                          : getString(R.string.agent_denied));
+
+                final ToolGuard.Verdict verdict = guard.check(c.name, callKey(c));
+                String result;
+                if (!verdict.run) {
+                    result = verdict.reason;
+                } else if (AgentTools.risky(c.name) && !allowAllWrites && !confirmTool(c)) {
+                    // 用户拒绝，或确认期间按了停止：都不执行
+                    result = stoppedBy(gen) ? getString(R.string.agent_cancelled)
+                                            : getString(R.string.agent_denied);
+                } else if (stoppedBy(gen)) {
+                    // 轮到它时本轮已被叫停，不再动本机状态
+                    result = getString(R.string.agent_cancelled);
+                } else {
+                    result = agentTools.exec(c);
+                }
+                executedThisRound = true;
                 updateToolCard(card, result);
-                ctx.add(new ChatMessage(ChatMessage.USER, toolResultText(result)));
+                turn.append('\n').append(toolResultText(fitForContext(result)));
             }
+            ctx.add(new ChatMessage(ChatMessage.ASSISTANT,
+                    turn.toString() + "\n" + toolResultReminder()));
+
+            if (guard.shouldStop()) {
+                // 已经开始原地打转：再喂一轮只会更糟，直接收尾并说明原因
+                uiSync(() -> addTool(getString(R.string.chat_tool_info), "info",
+                        getString(R.string.agent_repeat_stop, guard.repeatCount())));
+                break;
+            }
+            if (!executedThisRound) break;      // 本轮被叫停，没有任何工具真的执行：不必再喂一轮
         }
 
-        if (agentStep >= MAX_ROUNDS && !turnCancelled && !cancelledMidRound) {
+        if (agentStep >= MAX_ROUNDS && !converged && !turnCancelled && !cancelledMidRound) {
             uiSync(() -> addTool(getString(R.string.chat_tool_info), "info",
                     getString(R.string.agent_max_rounds, MAX_ROUNDS)));
         }
@@ -623,16 +683,49 @@ public class ChatActivity extends BaseActivity {
                 // 历史里的助手消息 = 上一轮已经「用过的」输出。工具调用片段与思考内容
                 // 再喂回去只会诱导模型重复调用同一个工具；思考块更是纯噪声。
                 String clean = agentMode
-                        ? ToolCall.strip(ToolCall.stripThinking(m.content), AgentTools.names())
+                        ? ToolCall.strip(ToolCall.stripThinking(m.content), enabledTools())
                         : ToolCall.stripThinking(m.content);
                 clean = clean.trim();
                 if (clean.isEmpty()) continue;
-                req.add(new ChatMessage(ChatMessage.ASSISTANT, clean));
+                appendMerged(req, ChatMessage.ASSISTANT, clean);
                 continue;
             }
-            req.add(m);
+            appendMerged(req, m.role, m.content);
         }
         return req;
+    }
+
+    /**
+     * 追加一条消息；若与上一条同角色，则合并成一条。
+     *
+     * <p>为什么必须合并：带 function-call 模板的模型（Qwen / DeepSeek / MiniCPM 的 chat template）
+     * 在渲染时按「轮」生成控制 token。同一个 role 连续出现两次时，模板会在中间插入一次
+     * 「上一轮结束 + 新一轮开始」，于是前一条的内容被划到上一轮里 —— 模型看到的是
+     * 「我调完工具，然后对话重新开始了」，工具结果等于没给。
+     *
+     * <p>而界面上本来就有现成的同角色相邻场景：工具卡片不参与请求，但它前后的两条文本消息
+     * 在请求里就是相邻的；自动落盘、错误提示、用户连发两条也一样。
+     */
+    private static void appendMerged(List<ChatMessage> req, String role, String content) {
+        if (TextUtils.isEmpty(content)) return;
+        ChatMessage last = req.isEmpty() ? null : req.get(req.size() - 1);
+        // 与最后一条同角色就合并。注意只看最后一条：中间的空消息已在上面被跳过，
+        // 不会出现「连着几条空消息把同角色消息隔开」的情况。
+        if (last != null && role.equals(last.role)) {
+            last.content = last.content + "\n\n" + content;
+            return;
+        }
+        req.add(new ChatMessage(role, content));
+    }
+
+    /**
+     * 本次对话实际启用的工具集合。
+     *
+     * <p>解析、剥离、提示词三处必须共用它：只要有一处用了全量清单，就会出现
+     * 「提示词没列这个工具，模型却调得通」或者反过来的静默失效。
+     */
+    private Set<String> enabledTools() {
+        return AgentTools.enabled(toolWeb, true, true);
     }
 
     private String buildSystemPrompt() {
@@ -644,9 +737,16 @@ public class ChatActivity extends BaseActivity {
         // 小模型（≤2.5B）容易被长提示词带跑偏，工具说明换成压缩版；工具清单照旧来自 AgentTools，
         // 免得「提示词说的工具」和「真的能执行的工具」两套东西对不上。
         boolean compact = PromptTemplate.wantsCompactTools(model == null ? "" : model.displayName);
-        String tools = agentMode
-                ? PromptTemplate.toolSection(AgentTools.describe(toolWeb, true, true), compact)
-                : null;
+        // 工具清单只列「真的能执行」的那些：关掉联网后还写着 web_search，
+        // 模型就会去调一个注定失败的接口，用户看到的是一次长时间的空转。
+        String tools = null;
+        if (agentMode) {
+            Set<String> on = enabledTools();
+            String list = AgentTools.describe(on.contains("web_search"), true, on.contains("shell"));
+            tools = PromptTemplate.toolSection(list, compact);
+            // 提示词里明说「别重复调用」，与宿主侧闸门配合，减少一次无用的往返
+            tools = tools + PromptTemplate.noRepeatRule();
+        }
         sb.append(PromptTemplate.compose(base, preset, tools, null));
         if (!TextUtils.isEmpty(pendingWebContext)) {
             sb.append("\n\n").append(getString(R.string.chat_web_context))
@@ -656,11 +756,48 @@ public class ChatActivity extends BaseActivity {
     }
 
     /**
-     * 回灌给模型的工具结果。用 user 角色 + {@code <tool_response>} 包裹：
+     * 回灌给模型的工具结果。用 {@code <tool_response>} 包裹：
      * 这正是 MiniCPM5 / Qwen 等模板里工具返回的标准写法，兼容性最好。
      */
     private static String toolResultText(String result) {
         return "<tool_response>\n" + result + "\n</tool_response>";
+    }
+
+    /** 单条工具结果回灌给模型时的字符上限（界面卡片仍显示完整内容）。 */
+    private static final int MAX_TOOL_RESULT_CHARS = 6000;
+
+    /**
+     * 工具结果回灌前收口：超长的截断，并明确告诉模型「被截断了」。
+     *
+     * <p>不截断时，一次 {@code cat} 或抓网页就能把整段历史挤出上下文，
+     * 随后引擎的裁剪会把最早几条消息丢掉 —— 模型看到的历史突然缺了一块，
+     * 更容易重复调用。截断点按「完整字符」取，不会把 emoji 切成半个。
+     */
+    private static String fitForContext(String result) {
+        String r = result == null ? "" : result;
+        if (r.length() <= MAX_TOOL_RESULT_CHARS) return r;
+        String head = TextKit.trimUtf8(r, MAX_TOOL_RESULT_CHARS / 2);
+        String tail = r.substring(r.length() - MAX_TOOL_RESULT_CHARS / 4);
+        return head + "\n…" + (Lang.zh() ? "（中略）" : " (omitted) ") + "…\n" + tail;
+    }
+
+    /**
+     * 判重用的调用指纹：工具名 + 归一化后的参数。
+     *
+     * <p>参数先按 JSON 的对象顺序无关地排序再拼，避免「同一个调用、参数顺序不同」被判成两次。
+     * 数值/布尔统一成字符串，免得 {@code 1} 与 {@code "1"} 看起来不一样。
+     */
+    private static String callKey(ToolCall c) {
+        if (c == null || c.args == null) return "";
+        final JSONObject a = c.args;
+        final List<String> keys = new ArrayList<>();
+        final List<String> values = new ArrayList<>();
+        for (java.util.Iterator<String> it = a.keys(); it.hasNext(); ) {
+            String k = it.next();
+            keys.add(k);
+            values.add(String.valueOf(a.opt(k)));
+        }
+        return ToolGuard.canonicalArgs(keys, values);
     }
 
     private static class Gen {
@@ -945,6 +1082,7 @@ public class ChatActivity extends BaseActivity {
                 }
                 prefs.edit().putBoolean(KEY_TOOL_WEB, toolWeb).apply();
                 updateChipWeb();
+                invalidatePrefix();
                 addTool(getString(R.string.chat_tool_info), "info",
                         getString(toolWeb ? R.string.chat_web_on : R.string.chat_web_off));
                 return;
@@ -1457,6 +1595,8 @@ public class ChatActivity extends BaseActivity {
         etTopP.setText(String.valueOf(params.topP));
         etTopK.setText(String.valueOf(params.topK));
         etCtx.setText(String.valueOf(nCtx));
+        EditText etRepeatPenalty = v.findViewById(R.id.etRepeatPenalty);
+        if (etRepeatPenalty != null) etRepeatPenalty.setText(String.valueOf(params.repeatPenalty));
         TextView ctxTip = v.findViewById(R.id.tvCtxTip);
         if (ctxTip != null) {
             MemoryBudget.Snapshot mem = MemoryBudget.read();
@@ -1476,6 +1616,9 @@ public class ChatActivity extends BaseActivity {
                     params.temp = def.temp;
                     params.topP = def.topP;
                     params.topK = def.topK;
+                    params.repeatLastN = def.repeatLastN;
+                    params.repeatPenalty = def.repeatPenalty;
+                    invalidatePrefix();
                     if (nCtx != DEFAULT_CTX) {
                         nCtx = DEFAULT_CTX;
                         prefs.edit().putInt(KEY_CTX, nCtx).apply();
@@ -1490,19 +1633,28 @@ public class ChatActivity extends BaseActivity {
                     params.temp = Validators.parseFloat(etTemp.getText().toString(), params.temp);
                     params.topP = Validators.parseFloat(etTopP.getText().toString(), params.topP);
                     params.topK = Validators.parseInt(etTopK.getText().toString(), params.topK);
+                    if (etRepeatPenalty != null) {
+                        params.repeatPenalty = Validators.parseFloat(
+                                etRepeatPenalty.getText().toString(), params.repeatPenalty);
+                    }
                     int ctx = Validators.parseInt(etCtx.getText().toString(), nCtx);
                     Validators.Sampling s = new Validators.Sampling(
-                            params.maxTokens, params.temp, params.topP, params.topK, ctx);
+                            params.maxTokens, params.temp, params.topP, params.topK, ctx,
+                            params.repeatLastN, params.repeatPenalty);
                     String note = Validators.normalize(s);
                     params.maxTokens = s.maxTokens;
                     params.temp = s.temp;
                     params.topP = s.topP;
                     params.topK = s.topK;
+                    params.repeatLastN = s.repeatLastN;
+                    params.repeatPenalty = s.repeatPenalty;
                     if (s.nCtx != nCtx) {
                         nCtx = s.nCtx;
                         prefs.edit().putInt(KEY_CTX, nCtx).apply();
                         if (generating) engine.cancel();
                         doLoad();     // 上下文变化需要重建 llama context
+                    } else {
+                        invalidatePrefix();   // 采样参数变化：作废旧 KV，避免新旧参数混用
                     }
                     if (!note.isEmpty()) {
                         Toast.makeText(this, note, Toast.LENGTH_LONG).show();
@@ -1520,8 +1672,14 @@ public class ChatActivity extends BaseActivity {
                 .setView(v)
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton(R.string.p_apply, (d, w) -> {
-                    systemPrompt = et.getText().toString().trim();
+                    String next = et.getText().toString().trim();
+                    boolean changed = !next.equals(systemPrompt);
+                    systemPrompt = next;
                     prefs.edit().putString(KEY_SYS, systemPrompt).apply();
+                    // 系统提示词在最前面：改了它，整个 KV 前缀都不再匹配。
+                    // 不主动 reset 的话，引擎会退化成「从第一个不同的 token 起重算」，
+                    // 虽然结果正确但会白算一遍长前缀；这里直接清掉更省事也更好理解。
+                    if (changed) invalidatePrefix();
                 })
                 .show();
     }
@@ -1606,7 +1764,7 @@ public class ChatActivity extends BaseActivity {
             boolean streaming = generating && position == messages.size() - 1;
             if (streaming) {
                 String live = agentMode
-                        ? ToolCall.stripThinking(ToolCall.strip(m.content, AgentTools.names()))
+                        ? ToolCall.stripThinking(ToolCall.strip(m.content, enabledTools()))
                         : ToolCall.stripThinking(m.content);
                 live = live.trim();
                 a.bubble.setText(TextUtils.isEmpty(live)

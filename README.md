@@ -28,7 +28,7 @@ the model can run shell commands, search the web and work with files.*
 对话页不是「只能聊天」的玩具——它是一个**能动手的智能体**：模型可以自己调用手机终端跑命令、联网搜索、读写工作区文件、预览网页，
 并在拿到真实结果后继续推理。
 
-> **当前版本 v2.7.0**（versionCode 15）· 原生化 arm64 多档指令集 · 纯 CPU 离线推理 · 数据不出设备
+> **当前版本 v2.8.0**（versionCode 16）· 原生化 arm64 多档指令集 · 纯 CPU 离线推理 · 数据不出设备
 
 ![架构](docs/assets/arch.png)
 

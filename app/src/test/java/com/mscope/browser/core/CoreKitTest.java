@@ -197,7 +197,54 @@ public class CoreKitTest {
         assertEquals(4, TextKit.shortHash("abc", 4).length());
     }
 
+    /** 「输出是否还在增长」靠取尾巴：短文本原样返回，长文本只留末尾，且不会切断代理对。 */
     @Test
+    public void tail_keepsSuffixOnly() {
+        assertEquals("", TextKit.tail(null, 8));
+        assertEquals("abc", TextKit.tail("abc", 8));
+        assertEquals("efg", TextKit.tail("abcdefg", 3));
+        assertEquals("abc", TextKit.tail("abc", 0));
+        // emoji 是代理对，按 char 截断可能切出半个：这里只要求长度与内容一致
+        String withEmoji = "hi\uD83D\uDE00there";
+        String t = TextKit.tail(withEmoji, 5);
+        assertEquals(withEmoji.substring(withEmoji.length() - 5), t);
+    }
+
+    /**
+     * 采样参数收敛：重复惩罚窗口关闭时系数必须归一，否则界面显示一个没有意义的数字。
+     * 另外窗口与系数都要被收敛到可接受区间 —— 大于 1 的系数是「惩罚」，小于 1 等于鼓励复读。
+     */
+    @Test
+    public void sampling_normalizesRepetitionPenalty() {
+        boolean zh = Lang.zh();
+
+        Validators.Sampling off = new Validators.Sampling(1024, 0.7f, 0.9f, 40, 4096, 0, 1.5f);
+        Validators.normalize(off, zh);
+        assertEquals(0, off.repeatLastN);
+        assertEquals(1.0f, off.repeatPenalty, 0.0001f);
+
+        Validators.Sampling tooBig = new Validators.Sampling(1024, 0.7f, 0.9f, 40, 4096, 99999, 9f);
+        String note = Validators.normalize(tooBig, zh);
+        assertEquals(Validators.REPEAT_LAST_N_MAX, tooBig.repeatLastN);
+        assertEquals(Validators.REPEAT_PENALTY_MAX, tooBig.repeatPenalty, 0.0001f);
+        assertTrue(note.length() > 0);
+
+        Validators.Sampling ok = new Validators.Sampling(1024, 0.7f, 0.9f, 40, 4096, 128, 1.08f);
+        assertEquals("", Validators.normalize(ok, zh));
+        assertEquals(128, ok.repeatLastN);
+        assertEquals(1.08f, ok.repeatPenalty, 0.0001f);
+    }
+
+    /** 旧的三参数构造必须继续可用（界面与测试都在用），且默认关闭惩罚。 */
+    @Test
+    public void sampling_legacyConstructorStillWorks() {
+        Validators.Sampling s = new Validators.Sampling(512, 0.5f, 0.8f, 20, 2048);
+        assertEquals(0, s.repeatLastN);
+        assertEquals(1f, s.repeatPenalty, 0.0001f);
+        Validators.normalize(s, Lang.zh());
+        assertEquals(512, s.maxTokens);
+    }
+
     public void roughTokens_countsCjkHeavier() {
         assertTrue(TextKit.roughTokens("你好世界") >= 4);
         assertTrue(TextKit.roughTokens("hello world") < TextKit.roughTokens("你好世界你好世界"));

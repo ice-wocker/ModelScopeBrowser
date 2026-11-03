@@ -6,6 +6,7 @@ import org.json.JSONObject;
 
 import java.io.File;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -36,11 +37,38 @@ public class AgentTools {
         this.host = host;
     }
 
+    private static final Set<String> ALL = Collections.unmodifiableSet(
+            new HashSet<>(Arrays.asList(
+                    "shell", "web_search", "fetch_url",
+                    "read_file", "write_file", "list_files", "delete_file", "open_preview")));
+
     /** 全部工具名（用于校验模型输出，避免把普通 JSON 误判成调用）。 */
     public static Set<String> names() {
-        return new HashSet<>(Arrays.asList(
-                "shell", "web_search", "fetch_url",
-                "read_file", "write_file", "list_files", "delete_file", "open_preview"));
+        return ALL;
+    }
+
+    /**
+     * 当前这次对话实际启用的工具名。
+     *
+     * <p>解析器与提示词必须用同一份清单：以前提示词里写「可用工具」时按开关过滤，
+     * 解析时却用全量 {@link #names()}，于是关掉联网后模型仍能调用 {@code web_search}
+     * —— 结果是一个卡住的网络请求，用户看到的是「转很久然后失败」。
+     */
+    public static Set<String> enabled(boolean web, boolean files, boolean shellOn) {
+        Set<String> out = new HashSet<>();
+        if (shellOn) out.add("shell");
+        if (web) {
+            out.add("web_search");
+            out.add("fetch_url");
+        }
+        if (files) {
+            out.add("read_file");
+            out.add("write_file");
+            out.add("list_files");
+            out.add("delete_file");
+            out.add("open_preview");
+        }
+        return out;
     }
 
     /** 需要用户确认后才能执行的工具（会改动本机状态）。 */

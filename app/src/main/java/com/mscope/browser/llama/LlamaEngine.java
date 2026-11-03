@@ -4,6 +4,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 
+import com.mscope.browser.core.TextKit;
 import com.mscope.browser.i18n.Lang;
 import com.mscope.browser.local.LocalModel;
 
@@ -38,6 +39,16 @@ public class LlamaEngine {
         public float topP = 0.9f;
         public int topK = 40;
         public int seed = -1;
+        /**
+         * 重复惩罚窗口（0 = 关闭）。
+         *
+         * <p>本地模型最典型的两种失败都在这里：工具没回结果时复读同一句，
+         * 以及被模板里没闭合的标签带着一直重复同一个 token 直到 maxTokens。
+         * 关掉它时这两种都会烧满整段输出预算，用户看到的是「卡住」。
+         */
+        public int repeatLastN = 128;
+        /** 重复惩罚系数；1.0 = 不惩罚。 */
+        public float repeatPenalty = 1.08f;
     }
 
     public interface LoadListener {
@@ -353,15 +364,41 @@ public class LlamaEngine {
 
                 final StringBuilder buf = new StringBuilder();
                 final long[] lastFlush = {start};
+                // 复读熔断的状态机：跨 token 累计，所以放在回调外面。
+                // 「上次看到的尾巴 / 尾巴长度 / 从什么时候开始没变」三者一比对就知道有没有新内容。
+                final String[] seenTail = {""};
+                final int[] seenLen = {-1};
+                final boolean[] stuck = {false};
+                final int[] since = {0};
+                final long[] firstSeenAt = {0};
+                // 回调里拿不到 nativeGenerate 的返回值（它要等整段生成结束才返回），
+                // 所以这里用回调自己累积的文本判复读，不能引用 full。
+                final StringBuilder sofar = new StringBuilder();
                 String full = LlamaBridge.nativeGenerate(h, roles, contents,
-                        p.maxTokens, p.temp, p.topP, p.topK, seed, piece -> {
+                        p.maxTokens, p.temp, p.topP, p.topK, seed,
+                        p.repeatLastN, p.repeatPenalty, piece -> {
                             count[0]++;
                             final long now = System.currentTimeMillis();
                             if (firstAt[0] == 0) firstAt[0] = now;
                             buf.append(piece);
+                            sofar.append(piece);
                             if (now - lastFlush[0] >= UI_FLUSH_MS) {
                                 lastFlush[0] = now;
                                 emit(buf, listener);
+                            }
+                            since[0]++;
+                            if (!stuck[0] && since[0] >= LOOP_SAMPLES
+                                    && isStuck(sofar, seenTail, seenLen, firstSeenAt, now)) {
+                                // 立刻打断：等它自己跑完 maxTokens 才收手，用户要多等几十秒
+                                stuck[0] = true;
+                                // 不能在回调线程里直接调 nativeCancel（会去抢生成线程自己持有的会话锁）。
+                                // 生成线程每产出一个 token 都会检查 cancel 标志，所以这里只做异步置位。
+                                worker.execute(() -> {
+                                    try {
+                                        LlamaBridge.nativeCancel(h);
+                                    } catch (Throwable ignored) {
+                                    }
+                                });
                             }
                         });
                 emit(buf, listener);
@@ -375,6 +412,7 @@ public class LlamaEngine {
                 final String text = full == null ? "" : full;
 
                 generating = false;
+                if (stuck[0]) Log.w(TAG, "检测到复读，已提前收尾");
                 ui.post(() -> listener.onDone(text, nTokens, end - start, prefillMs, tps));
             } catch (Throwable t) {
                 Log.e(TAG, "生成异常", t);
@@ -384,9 +422,41 @@ public class LlamaEngine {
         });
     }
 
+    /** 复读判定用的尾巴长度：太短会把正常重复（表格、缩进）当成故障。 */
+    private static final int LOOP_TAIL = 96;
+    /** 多久没有变化就判定为复读（毫秒）。 */
+    private static final long LOOP_IDLE_MS = 6000;
+    /** 累计看到「拖尾重复」多少条之后才真的判定（条数阈值与视觉重复无关，纯粹是采样次数）。 */
+    private static final int LOOP_SAMPLES = 40;
+
+    /**
+     * 复读熔断：模型的输出在 {@link #LOOP_IDLE_MS} 内一个字都没新增，就说明它绕不出来。
+     *
+     * <p>为什么看「是否还在增长」而不是看「有没有重复」：代码块、表格、列表本来就大量重复，
+     * 按重复判会误杀正常回答。而正常情况下每秒至少吐几个 token，好几秒一个字都不涨就是异常。
+     *
+     * <p>为什么要等 {@link #LOOP_SAMPLES} 个采样：慢机型上两个 token 之间本来就可能隔几百毫秒，
+     * 只比较相邻两次会把正常输出判成卡住。
+     *
+     * <p>状态都用数组传，避免每 token 分配对象；只在生成线程里访问，无需同步。
+     */
+    private static boolean isStuck(CharSequence sofar, String[] seenTail, int[] seenLen,
+                                   long[] firstSeenAt, long now) {
+        final String whole = sofar == null ? "" : sofar.toString();
+        final String tail = TextKit.tail(whole, LOOP_TAIL);
+        // 长度变了、或尾巴变了，都说明还在产出新内容：重置计时
+        final boolean grew = whole.length() != seenLen[0] || !tail.equals(seenTail[0]);
+        if (grew) {
+            seenLen[0] = whole.length();
+            seenTail[0] = tail;
+            firstSeenAt[0] = now;
+            return false;
+        }
+        return now - firstSeenAt[0] >= LOOP_IDLE_MS;
+    }
+
     /** 把累积的片段合并后抛到界面线程。 */
     private void emit(StringBuilder buf, StreamListener listener) {
-        if (buf.length() == 0) return;
         final String chunk = buf.toString();
         buf.setLength(0);
         ui.post(() -> listener.onToken(chunk));
@@ -399,7 +469,8 @@ public class LlamaEngine {
      * 必须以「消息」为单位丢，而不是在原生层截断 token —— 后者会让公共前缀作废，每轮都要全量重算。
      */
     private static List<ChatMessage> fitMessages(long h, List<ChatMessage> messages, int maxNew) {
-        List<ChatMessage> work = new ArrayList<>(messages);
+        if (messages == null) return new ArrayList<>();
+        final List<ChatMessage> work = new ArrayList<>(messages);
         if (work.size() <= 1) return work;
 
         final int nCtx = LlamaBridge.nativeContextSize(h);
@@ -409,21 +480,51 @@ public class LlamaEngine {
 
         if (estimateTokens(h, work) <= budget) return work;
 
-        while (work.size() > 1) {
-            // 从最早的一条开始丢，最后一条（本轮用户输入）永远保留。
-            // 注意不要跳过 system：它在最前面，跳过后如果视图里只有 system + 用户消息，
-            // 循环就一次都裁不掉，只能靠原生层截断，前缀复用全废。
-            final int idx = 0;                              // 最早的一条
-            final boolean wasUser = ChatMessage.USER.equals(work.get(idx).role);
-            work.remove(idx);
-            // 用户消息与其回复成对丢弃，避免留下孤立回答
-            if (wasUser && idx < work.size() - 1
-                    && ChatMessage.ASSISTANT.equals(work.get(idx).role)) {
-                work.remove(idx);
-            }
-            if (estimateTokens(h, work) <= budget) break;
+        // 每次「丢一条 + 重新分词」在长会话上就是几十次全量 tokenize，一次生成前白烧几百毫秒。
+        // 改为：用「每条消息的粗略 token 数」先估一个该丢多少，再二分校验。
+        // 估计偏保守（宁可多丢），最终仍以真实分词结果为准。
+        int[] costs = new int[work.size()];
+        int total = 0;
+        for (int i = 0; i < work.size(); i++) {
+            costs[i] = TextKit.roughTokens(work.get(i).content) + 8;
+            total += costs[i];
         }
-        return work;
+        int from = 0;
+        while (from < work.size() - 1 && total > budget) {
+            total -= costs[from];
+            // 用户消息与其回复成对丢弃，避免留下孤立回答。
+            // 只在「这一对之后还有别的内容」时成对丢：否则会把最后两条一起丢掉，
+            // 连本轮用户输入都没了，模型会去回答一个不存在的提问。
+            if (ChatMessage.USER.equals(work.get(from).role) && from + 2 < work.size()
+                    && ChatMessage.ASSISTANT.equals(work.get(from + 1).role)) {
+                total -= costs[from + 1];
+                from += 2;
+            } else {
+                from += 1;
+            }
+        }
+        if (from >= work.size() - 1) return work;      // 只剩最后一条，不能继续丢
+
+        // 二分：在 [from, size) 里找「能放下且丢得最少」的起点（实时分词，结论精确）。
+        List<ChatMessage> candidate = new ArrayList<>(work.subList(from, work.size()));
+        if (estimateTokens(h, candidate) <= budget) return candidate;
+
+        List<ChatMessage> best = candidate;
+        int lo = from + 1, hi = work.size() - 2;
+        while (lo <= hi) {
+            int mid = (lo + hi) >>> 1;
+            List<ChatMessage> slice = new ArrayList<>(work.subList(mid, work.size()));
+            if (estimateTokens(h, slice) <= budget) {
+                best = slice;
+                hi = mid - 1;
+            } else {
+                lo = mid + 1;
+            }
+        }
+        if (best != candidate && estimateTokens(h, best) <= budget) return best;
+        // 连「最后一条」都超预算（用户粘贴了一份巨大的文件）：只留最后一条，
+        // 让原生层的 budgetInput 兜底截断 —— 至少模型能看见本轮提问的开头。
+        return new ArrayList<>(work.subList(work.size() - 1, work.size()));
     }
 
     private static int estimateTokens(long h, List<ChatMessage> msgs) {

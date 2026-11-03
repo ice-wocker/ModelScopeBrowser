@@ -77,17 +77,25 @@ onSendClicked()
   └─ plain chat → generateBlocking()
 
 agentLoop()
+  guard = ToolGuard()                        ← anti-spin for this turn
   for step in 1..8:
     gen = generateBlocking(ctx)              ← block until this round is generated
     if stopped → break
-    calls = ToolCall.parse(gen.text)
+    calls = ToolCall.parse(gen.text, AgentTools.enabled(web, files, shell))
     if no calls → this is the final answer, break
     for each call:
-      matches a registered tool? no → ignore (so ordinary JSON is never executed by accident)
+      registered and enabled? no → ignore (so ordinary JSON is never executed by accident)
+      already ran in this turn (tool name + argument fingerprint)? yes → skip, reply "already ran"
       needs confirmation? → dialog (allow / deny / always allow this session)
-      execute → get a text result
-      append the result to ctx as <tool_response>
+      execute → get a text result (capped at 6k characters, on a character boundary)
+    **merge this round's calls and every result into a single assistant message** and append it
+      — two same-role messages make a function-call template think "a new turn started",
+        so the model silently loses the result
+    guard says we are spinning (repeats ≥ 2) → stop instead of feeding another round
 ```
+
+The invariant: **the same role must never appear twice in a row in ctx**. `buildBaseContext()`
+guarantees it through `appendMerged()` (adjacent assistant history, two user messages in a row).
 
 ### 3.3 Generating one round
 
@@ -109,7 +117,7 @@ LlamaEngine.generate(msgs, params, listener)
 |---|---|---|
 | `nativeInit(modelPath, nCtx, nThreads, nBatchThreads, backendDir)` | load model + build context | returns a handle, 0 means failure |
 | `nativeFree(handle)` | release | reference counted; the last holder destroys |
-| `nativeGenerate(handle, roles, contents, maxTokens, temp, topP, topK, seed, cb)` | generate | blocks until finished or cancelled |
+| `nativeGenerate(handle, roles, contents, maxTokens, temp, topP, topK, seed, repeatLastN, repeatPenalty, cb)` | generate | blocks until finished or cancelled; a repetition window of 0 disables the penalty |
 | `nativeCancel(handle)` | cancel | sets a flag, checked once per token in the sampling loop |
 | `nativeReset(handle)` | clear KV | used for new sessions |
 | `nativeBuildPrompt(handle, roles, contents)` | apply template | reused for token estimation |
@@ -174,7 +182,7 @@ Where to touch things when you want to add something:
 
 | Want to add | Change these |
 |---|---|
-| A new tool | `AgentTools.names()` / `exec()` / `describe()`; `ToolCall` needs no change |
+| A new tool | `AgentTools.ALL` / `enabled()` / `exec()` / `describe()`; `ToolCall` needs no change |
 | A new data source | `ModelApi`; keep the `Page` shape intact |
 | A new inference backend | `CMakeLists.txt` + `llama_bridge.cpp` |
 | A new prompt preset | `PromptTemplate.Preset` + `body()` |

@@ -146,6 +146,13 @@ public final class TextKit {
         }
     }
 
+    /** 取字符串末尾最多 n 个字符；不足时原样返回。用于「输出是否还在增长」这类判定。 */
+    public static String tail(String s, int n) {
+        if (s == null) return "";
+        if (n <= 0 || s.length() <= n) return s == null ? "" : s;
+        return s.substring(s.length() - n);
+    }
+
     /** 估算混合中英文文本的 token 数（中文约 1 字 1 token，英文约 4 字符 1 token）。 */
     public static int roughTokens(String s) {
         if (s == null || s.isEmpty()) return 0;

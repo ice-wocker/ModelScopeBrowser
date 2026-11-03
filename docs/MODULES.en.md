@@ -7,7 +7,7 @@ One section per module, covering three things: **what it solves**, **how it does
 logic in this repo without reading all the source first.
 
 Contents:
-[1 ModelApi](#1-modelapi--api-and-degradation) · [2 DownloadCenter](#2-downloadcenter--downloads-and-resume) · [3 LocalModelStore](#3-localmodelstore--index-and-atomic-writes) · [4 Workspace](#4-workspace--path-convergence) · [5 Shell](#5-shell--a-real-shell) · [6 ToolCall](#6-toolcall--protocol-parsing) · [7 AgentTools](#7-agenttools--tool-execution) · [8 WebSearch](#8-websearch--web-search) · [9 LlamaEngine](#9-llamaengine--session-management) · [10 llama_bridge](#10-llama_bridgecpp--the-jni-bridge) · [11 ChatActivity](#11-chatactivity--the-chat-screen) · [12 MemoryBudget](#12-memorybudget--context-budget) · [13 StorageGuard](#13-storageguard--storage-health-check) · [14 FsKit](#14-fskit--file-operations) · [15 Validators](#15-validators--input-convergence) · [16 PromptTemplate](#16-prompttemplate--prompts) · [17 TextKit](#17-textkit--text-utilities) · [18 PerfStats](#18-perfstats--performance-stats) · [19 MarkdownOutline](#19-markdownoutline--outline)
+[1 ModelApi](#1-modelapi--api-and-degradation) · [2 DownloadCenter](#2-downloadcenter--downloads-and-resume) · [3 LocalModelStore](#3-localmodelstore--index-and-atomic-writes) · [4 Workspace](#4-workspace--path-convergence) · [5 Shell](#5-shell--a-real-shell) · [6 ToolCall](#6-toolcall--protocol-parsing) · [7 AgentTools](#7-agenttools--tool-execution) · [8 WebSearch](#8-websearch--web-search) · [9 LlamaEngine](#9-llamaengine--session-management) · [10 llama_bridge](#10-llama_bridgecpp--the-jni-bridge) · [11 ChatActivity](#11-chatactivity--the-chat-screen) · [12 MemoryBudget](#12-memorybudget--context-budget) · [13 StorageGuard](#13-storageguard--storage-health-check) · [14 FsKit](#14-fskit--file-operations) · [15 Validators](#15-validators--input-convergence) · [16 PromptTemplate](#16-prompttemplate--prompts) · [17 TextKit](#17-textkit--text-utilities) · [18 PerfStats](#18-perfstats--performance-stats) · [19 MarkdownOutline](#19-markdownoutline--outline) · [20 ToolGuard](#20-toolguard--anti-spin-gate)
 
 ## 1 ModelApi · API and degradation
 
@@ -781,3 +781,44 @@ If you take one lesson away: **turn "uncertain" into "checkable"**. Not sure abo
 Write `StorageGuard`. Not sure the file is a model? Read the magic. Not sure the parameters are
 legal? Run them through `Validators`. Every guess replaced by a check is one fewer
 "sometimes wrong, never reproducible" bug.
+
+## 20 ToolGuard · anti-spin gate
+
+**Problem**: a small local model repeats the same tool call after receiving the result. It does not
+really "remember" that it already read that file, so it asks again; without a gate, all 8 steps of a
+turn go to the same call and the user gets no answer.
+
+### 20.1 Fingerprints must be argument-order independent
+
+The model orders arguments differently every time:
+
+```text
+{"path": "a.txt", "content": "hi"}   ← first
+{"content": "hi", "path": "a.txt"}   ← second, the same call
+```
+
+Comparing raw JSON strings treats them as two calls and the gate does nothing.
+`ToolGuard.canonicalArgs()` lowercases keys, trims values and sorts them into
+`content=hi;path=a.txt`.
+
+### 20.2 Three layers, each covering a different gap
+
+| Layer | Mechanism | Effect |
+|---|---|---|
+| Prompt | `PromptTemplate.noRepeatRule()` | saves the model a step (one sentence) |
+| Host | `ToolGuard` | the same call runs at most twice; two repeats end the turn |
+| Sampling | repetition penalty + loop breaker | kills repetition at the token level too |
+
+Any single layer is not enough: the prompt cannot stop a model that simply ignores it, the gate
+cannot stop a model that rephrases the call, and the sampling penalty cannot end the turn.
+
+### 20.3 Why the limit is 2, not 1
+
+Some calls legitimately happen twice: read a file, change it, read it back to confirm.
+Blocking at one would break the most ordinary workflow.
+
+### 20.4 Very long arguments
+
+A `write_file` payload can be tens of thousands of characters. The fingerprint keeps only the first
+`MAX_ARGS` characters, **cut on a character boundary** (never splitting a surrogate pair): dedup does
+not need the whole text, but the key still has to be readable.

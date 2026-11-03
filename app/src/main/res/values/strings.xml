@@ -139,6 +139,7 @@
     <string name="p_temp">Randomness (temperature)</string>
     <string name="p_top_p">Top-P</string>
     <string name="p_top_k">Top-K</string>
+    <string name="p_repeat_penalty">Repetition penalty</string>
     <string name="p_ctx">Context window</string>
     <string name="p_ctx_tip">Output has to fit inside the context (context = prompt/history + this reply), which is why the default is “context 8192 / max output 4096”. A larger context handles longer conversations but uses more memory (the KV cache is quantised to q8_0, roughly half the original size); 4096 is a safer choice on low-memory devices.</string>
     <string name="p_ctx_device_tip">Suggested for this device: %1$s</string>
@@ -164,6 +165,8 @@
     <string name="agent_denied">The user denied this operation. Try another approach, or explain that it cannot be done.</string>
     <string name="agent_cancelled">The user stopped this turn; the tool was not executed.</string>
     <string name="agent_max_rounds">Reached the per-turn tool call limit (%1$d steps). Summarise what you have so far.</string>
+    <string name="agent_repeat">This exact call already ran in this turn, so it was not executed again. Use the result above, or change the arguments.</string>
+    <string name="agent_repeat_stop">Same tool call repeated %1$d times; stopping so it does not spin. Ask again with a more specific goal, or adjust the model/context.</string>
     <string name="chat_searching">Searching the web…</string>
     <string name="chat_tool_search">Web search</string>
     <string name="chat_tool_file">File</string>

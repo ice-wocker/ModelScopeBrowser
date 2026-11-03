@@ -63,6 +63,25 @@ public class Bi18nTest {
 
     /* -------------------------------------------------------- PromptTemplate */
 
+    /**
+     * 「别重复调用」这条约束必须两种语言都有，且不能混排。
+     *
+     * <p>它不是装饰：小模型拿到工具结果后重复同一个调用是最高频的失败，
+     * 提示词里少这一句，宿主侧的闸门就要多拦一次（多烧一轮上下文）。
+     */
+    @Test
+    public void promptTemplate_noRepeatRuleIsBilingual() {
+        assertTrue(PromptTemplate.NO_REPEAT_ZH.contains("不要重复"));
+        assertFalse(containsCjk(PromptTemplate.NO_REPEAT_EN));
+        assertTrue(PromptTemplate.NO_REPEAT_EN.contains("Do not re-issue"));
+
+        Lang.setChinese(true);
+        assertEquals(PromptTemplate.NO_REPEAT_ZH, PromptTemplate.noRepeatRule());
+        Lang.setChinese(false);
+        assertEquals(PromptTemplate.NO_REPEAT_EN, PromptTemplate.noRepeatRule());
+    }
+
+
     @Test
     public void promptTemplate_everyPresetHasBothLanguages() {
         for (PromptTemplate.Preset p : PromptTemplate.Preset.values()) {
