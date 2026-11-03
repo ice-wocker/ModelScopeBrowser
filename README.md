@@ -14,7 +14,7 @@ the model can run shell commands, search the web and work with files.*
 [![Android](https://img.shields.io/badge/Android-7.0%2B%20(API%2024)-3DDC84?logo=android&logoColor=white)](#)
 [![llama.cpp](https://img.shields.io/badge/llama.cpp-b11205-000000)](#)
 [![推理](https://img.shields.io/badge/%E6%8E%A8%E7%90%86-%E7%BA%AFCPU%20%C2%B7%20%E5%A4%9A%E6%A1%A3%E6%8C%87%E4%BB%A4%E9%9B%86-4B5563)](#)
-[![Tests](https://img.shields.io/badge/tests-204%20passed-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-207%20passed-brightgreen)](#)
 
 [**English**](README.en.md) · [下载安装](#下载安装) · [功能](#功能) · [怎么用](#怎么用) · [技术亮点](#技术亮点) · [文档](#文档) · [构建](#构建) · [作者](#作者)
 
@@ -68,7 +68,7 @@ the model can run shell commands, search the web and work with files.*
 而是按难度给到 **32 / 64 / 128 / 200 步**，再叠一层「墙钟时间」与「上下文将满」的兜底 ——
 任何一条到顶都会体面收尾并说明是哪一条，而不是只丢一句「已达上限」。
 
-**22 个工具**（提示词、解析器、接口 schema 共用一份定义）：
+**21 个工具**（提示词、解析器、接口 schema 共用一份定义，数量由单测钉死）：
 
 | 分组 | 工具 | 作用 |
 |---|---|---|
@@ -400,7 +400,7 @@ keyPassword=******
 
 [`.github/workflows/android.yml`](.github/workflows/android.yml) 分两个 job：
 
-1. **verify**：单元测试（204 个）+ Lint，上传测试与 Lint 报告；
+1. **verify**：单元测试（207 个）+ Lint，上传测试与 Lint 报告；
 2. **build**（`needs: verify`）：补装 SDK → 缓存 native 构建 → 配置签名 → `assembleDebug` + `assembleRelease` → 
    **校验产物**（`apksigner` 打印证书、`aapt2` 打印 ABI 与版本，tag 上拒绝 debug 签名）→ 上传 `apk` artifact；
    推送 `v*` 标签时自动创建 Release 并附上 APK。

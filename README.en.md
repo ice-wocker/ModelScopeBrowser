@@ -13,7 +13,7 @@
 [![Android](https://img.shields.io/badge/Android-7.0%2B%20(API%2024)-3DDC84?logo=android&logoColor=white)](#)
 [![llama.cpp](https://img.shields.io/badge/llama.cpp-b11205-000000)](#)
 [![i18n](https://img.shields.io/badge/i18n-English%20%C2%B7%20%E4%B8%AD%E6%96%87-4B5563)](#internationalisation)
-[![Tests](https://img.shields.io/badge/tests-204%20passed-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-207%20passed-brightgreen)](#)
 
 [中文](README.md) · [Install](#install) · [Features](#features) · [Usage](#usage) · [How it works](#how-it-works) · [Docs](#documentation) · [Build](#build)
 
@@ -71,7 +71,7 @@ through `i18n/Lang`. Each Activity pins the language in `attachBaseContext`, whi
 | **Model details** | Metadata, **file list** with sizes and LFS markers, **Markdown-rendered** description; one-tap download for `.gguf`. |
 | **In-app download** | Saved to app-private storage (**no storage permission**), progress and cancel, **resumable**, **foreground-service notification**, resumes automatically after the process is killed. On completion it validates the byte count and sniffs the `GGUF` magic to reject error pages and truncated files. Before starting it runs a **storage check** and tells you how much will be left — or exactly how much you are short. |
 | **Offline chat** | Built-in **llama.cpp**, streaming tokens, stop at any time, **Markdown rendering** (headings, lists, tables, code), long-press to copy / regenerate / edit-and-resend / continue / delete, export a chat, and a status bar with context usage plus decode speed (last / mean / P90). The context window is **sized from device memory** on first run instead of a hard-coded number. |
-| **Agent** | Model emits a tool call → app really executes it → result is fed back → the model continues. **The per-turn step cap is no longer a hard-coded 8**: an effort level gives 32 / 64 / 128 / 200 steps, with a wall-clock budget and a context-is-filling guard on top. Hitting any one of them ends the turn with a message that says which one. **22 tools**, all defined in one schema shared by the prompt, the parser and the JSON tool array: `shell`, `world_info`, `now`, `calc`, `web_search` / `fetch_url`, `read_file` / `write_file` / `list_files` / `delete_file`, `file_info`, `edit_file` (exact snippet, fails loudly when missing or ambiguous), `apply_patch` (unified diff, zero writes on failure), `open_preview`, `todo_write`, `journal_read`, `kb_index` / `kb_search` (BM25 + CJK bigrams), `remember` / `recall` (long-term memory, secrets redacted on write), `bench`. `shell`, `write_file`, `delete_file`, `edit_file`, `apply_patch` and `bench` ask for confirmation first. |
+| **Agent** | Model emits a tool call → app really executes it → result is fed back → the model continues. **The per-turn step cap is no longer a hard-coded 8**: an effort level gives 32 / 64 / 128 / 200 steps, with a wall-clock budget and a context-is-filling guard on top. Hitting any one of them ends the turn with a message that says which one. **21 tools**, all defined in one schema shared by the prompt, the parser and the JSON tool array: `shell`, `world_info`, `now`, `calc`, `web_search` / `fetch_url`, `read_file` / `write_file` / `list_files` / `delete_file`, `file_info`, `edit_file` (exact snippet, fails loudly when missing or ambiguous), `apply_patch` (unified diff, zero writes on failure), `open_preview`, `todo_write`, `journal_read`, `kb_index` / `kb_search` (BM25 + CJK bigrams), `remember` / `recall` (long-term memory, secrets redacted on write), `bench`. `shell`, `write_file`, `delete_file`, `edit_file`, `apply_patch` and `bench` ask for confirmation first. |
 | **Inference engine** | **Adaptive sampling** from the measured decode speed: slow devices (<4 tok/s) get lower temperature and a shorter output cap so they finish in time; fast ones (>12) get more room and wider sampling. `top-p ∈ (0,1]` and `top-k ≥ 1` are always enforced — out-of-range values degrade or crash the sampler silently. **Two-level loop breaker**: the old check only saw "no new bytes for seconds", which misses paraphrased repetition; the new content-level check flags a ≥16-char segment repeated 3 times within the window. **Built-in benchmark** with a plain-language verdict. |
 | **Workspace** | App-private `filesDir/workspace`: paths are forced inside the root, writes are atomic. Browse / create / view / share / delete; tap an `.html` file for an in-app WebView preview (JS, CSS and relative assets work; toggle desktop mode or hand off to the system browser). |
 | **Terminal** | A **real shell**, cwd pinned to the workspace, 60-second timeout, truncated output, runs off the UI thread. Sandboxed by Android: app-private directories only, no root. |
@@ -356,7 +356,7 @@ Without it, release builds fall back to debug signing so any environment can sti
 
 [`.github/workflows/android.yml`](.github/workflows/android.yml) has two jobs:
 
-1. **verify** — unit tests (99) and Lint, uploading both reports;
+1. **verify** — unit tests (207) and Lint, uploading both reports;
 2. **build** (`needs: verify`) — install SDK, cache the native build, configure signing,
    `assembleDebug` + `assembleRelease`, **verify artifacts** (`apksigner` prints the certificate, `aapt2` prints
    ABI and version; tags refuse debug signing), upload the `apk` artifact, and on `v*` tags create a Release with

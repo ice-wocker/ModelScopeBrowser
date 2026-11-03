@@ -67,11 +67,29 @@
 - **工具定义收敛成一份 schema**（`ToolSchemas`）：提示词、解析器白名单、以及将来发给外部模型的 `tools` JSON 数组共用一份。以前是三处各写一遍，漂移一次就是「提示词说能调、实际调不通」。
 - 版本号改为 **alpha 1.0**（versionCode 17）。alpha 的意思是接口还会动，不用 2.x 假装成熟。
 
-### 验证到哪一步
+### 验证到哪一步（已从「桩编译」升级为真构建）
 
-- 单测 **118 → 204 个，全绿**（新增 12 个测试类）。双语资源 242 : 242 逐条对齐，占位符一致，这条现在是单测。
-- 全量 `src/main/java` 用 JDK 17 + 手写 Android/AndroidX/Material/Markwon 桩编译通过（抓语法、类型、签名错误）。
-- **没验证的**：真机运行、native 编译、Lint。这三件事只有仓库的 Android CI 能证明。
+首次提交时只做了 JDK 17 + 手写桩的编译验证，明确标注「native / Lint 未验证」。补齐真环境后，那两项直接炸了：
+
+- **native 编译不过**：`llama_sampler_init_penalties` 在 llama.cpp b11205 起多了一个 `n_vocab` 首参，
+  `llama_bridge.cpp` 仍按 4 个参数调用，arm64-v8a 与 armeabi-v7a 都在 `[10/184]` 处 `error: no matching function`。
+  这不是警告，是整个包出不来。
+- **Android 7.0/7.1 上记忆会崩**：`Memory.Store` 用了 `File#toPath` 与 `java.nio.file.Files`，
+  这两个 API 要 26，而 `minSdk` 是 24。API 24/25 上不是「功能缺失」而是 `NoClassDefFoundError` ——
+  一碰长期记忆就闪退。Lint `NewApi` 报了 4 个 error。
+
+两处都已修。修完的实测数据（JDK 17 + Android SDK 36 + NDK 27.2.12479018，非桩）：
+
+- `testDebugUnitTest`：**207 个全绿**（204 + 1 条记忆落盘回归 + 2 条工具清单一致性）。
+- `lintDebug`：**0 errors**（101 warnings 为存量，未新增基线）。
+- `assembleDebug` / `assembleRelease`：**真出包**。`aapt2` 确认 `versionCode='17' versionName='alpha 1.0'`、
+  `native-code: arm64-v8a armeabi-v7a`；arm64 侧 8 个多档后端 `.so` 齐全（armv8.0 / 8.2 / 8.6 / 9.0 / 9.2）。
+- 双语资源 242 : 242 逐条对齐、占位符一致，这条是单测。
+
+**仍然没验证的只有一项：真机运行。** 装完选「深度」档跑多文件改动，看会不会提前收尾或漏步。
+
+顺带一条流程结论：**桩编译证明不了能出包**。桩能让 `src/main/java` 通过 javac，但碰不到 `cpp/`，
+也碰不到 `minSdk` 与 API 等级的边界——恰恰是这两处同时出了事。
 
 ### 一个还在的问题
 

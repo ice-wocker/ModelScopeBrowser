@@ -80,14 +80,32 @@ After tool results are trimmed away the model re-reads the same file, or undoes 
   advertises a tool that cannot run.
 - Version is now **alpha 1.0** (versionCode 17). Alpha means the interfaces may still move.
 
-### How far this was verified
+### How far this was verified (stub compile → real build)
 
-- Unit tests **118 → 204, all green** (12 new test classes). The en/zh string resources are
-  checked key by key (242 : 242) and the check is now a test.
-- All of `src/main/java` compiles under JDK 17 against hand-written Android / AndroidX / Material /
-  Markwon stubs (catches syntax, type and signature errors).
-- **Not verified**: real-device behaviour, the native build, and Lint. Only the repository's
-  Android CI can prove those.
+The first version was only verified by compiling against hand-written JDK 17 stubs, and said so:
+native build and Lint were unverified. Running them for real broke immediately, twice:
+
+- **The native build did not compile.** Since llama.cpp b11205, `llama_sampler_init_penalties` takes
+  a leading `n_vocab` argument; `llama_bridge.cpp` still passed four. Both arm64-v8a and armeabi-v7a
+  failed with `error: no matching function` — no APK at all, not a warning.
+- **Memory crashed on Android 7.0/7.1.** `Memory.Store` used `File#toPath` and `java.nio.file.Files`,
+  which are API 26, while `minSdk` is 24. On API 24/25 that is not a missing feature but a
+  `NoClassDefFoundError` — touching long-term memory took the app down. Lint `NewApi` flagged 4 errors.
+
+Both fixed. Measured afterwards (JDK 17 + Android SDK 36 + NDK 27.2.12479018, no stubs):
+
+- `testDebugUnitTest`: **207 green** (204 + one regression pinning the in-memory round-trip through `java.io`, + two pinning the tool list).
+- `lintDebug`: **0 errors** (101 pre-existing warnings, no new baseline).
+- `assembleDebug` / `assembleRelease`: **real APKs**. `aapt2` reports
+  `versionCode='17' versionName='alpha 1.0'` and `native-code: arm64-v8a armeabi-v7a`; all eight
+  arm64 multi-variant backend `.so` files are present (armv8.0 / 8.2 / 8.6 / 9.0 / 9.2).
+
+**Still unverified: real-device behaviour** — the only remaining item. Install it, pick the "deep"
+tier, and give it a multi-file task that takes several steps.
+
+One process lesson: **a stub compile does not prove you can ship.** Stubs let `src/main/java` pass
+javac, but they never touch `cpp/` or the `minSdk` / API-level boundary — and those were exactly the
+two places that broke.
 
 ### Still open
 
