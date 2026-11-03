@@ -67,6 +67,8 @@ Three causes stacked on top of each other; each one alone is enough to break the
 ### Docs
 
 - `versionCode 15 → 16`, `versionName 2.7.0 → 2.8.0`.
+- `ARCHITECTURE` now states the invariant "the same role must never appear twice in a row in the
+  request"; `MODULES` has a new ToolGuard section.
 
 ---
 

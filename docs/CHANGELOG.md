@@ -63,6 +63,7 @@
 
 - 版本号 `versionCode 15 → 16`，`versionName 2.7.0 → 2.8.0`。
 - 本文件与 `CHANGELOG.en.md` 同步。
+- `ARCHITECTURE` 补上「同一 role 不能在请求里连续出现两次」这条不变量，`MODULES` 新增 ToolGuard 一节。
 
 ---
 
