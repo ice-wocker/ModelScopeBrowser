@@ -13,7 +13,7 @@
 [![Android](https://img.shields.io/badge/Android-7.0%2B%20(API%2024)-3DDC84?logo=android&logoColor=white)](#)
 [![llama.cpp](https://img.shields.io/badge/llama.cpp-b11205-000000)](#)
 [![i18n](https://img.shields.io/badge/i18n-English%20%C2%B7%20%E4%B8%AD%E6%96%87-4B5563)](#internationalisation)
-[![Tests](https://img.shields.io/badge/tests-99%20passed-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-204%20passed-brightgreen)](#)
 
 [中文](README.md) · [Install](#install) · [Features](#features) · [Usage](#usage) · [How it works](#how-it-works) · [Docs](#documentation) · [Build](#build)
 
@@ -29,7 +29,9 @@ The chat screen is not a toy. It is an **agent that can act**: the model may cal
 search the web, read and write workspace files and preview web pages — then keep reasoning from the real
 results it gets back.
 
-> **Current release v2.8.0** (versionCode 16) · multi-variant arm64 CPU backends · pure CPU offline inference · data never leaves the device
+> **Current release alpha 1.0** (versionCode 17) · multi-variant arm64 CPU backends · pure CPU offline inference · data never leaves the device
+>
+> alpha means the capabilities are new and the interfaces (tool names, arguments, menus) may still move. Every fix from 2.8.0 is included.
 
 ![Architecture](docs/assets/arch.png)
 
@@ -69,7 +71,8 @@ through `i18n/Lang`. Each Activity pins the language in `attachBaseContext`, whi
 | **Model details** | Metadata, **file list** with sizes and LFS markers, **Markdown-rendered** description; one-tap download for `.gguf`. |
 | **In-app download** | Saved to app-private storage (**no storage permission**), progress and cancel, **resumable**, **foreground-service notification**, resumes automatically after the process is killed. On completion it validates the byte count and sniffs the `GGUF` magic to reject error pages and truncated files. Before starting it runs a **storage check** and tells you how much will be left — or exactly how much you are short. |
 | **Offline chat** | Built-in **llama.cpp**, streaming tokens, stop at any time, **Markdown rendering** (headings, lists, tables, code), long-press to copy / regenerate / edit-and-resend / continue / delete, export a chat, and a status bar with context usage plus decode speed (last / mean / P90). The context window is **sized from device memory** on first run instead of a hard-coded number. |
-| **Agent** | Model emits a tool call → app really executes it → result is fed back → the model continues, up to **8 steps**, interruptible. Tools: `shell` (real `/system/bin/sh`, cwd = workspace), `web_search` / `fetch_url` (public http/https only), `read_file` / `write_file` / `list_files` / `delete_file` (atomic writes, path-escaped), `open_preview`. `shell`, `write_file` and `delete_file` ask for confirmation first. |
+| **Agent** | Model emits a tool call → app really executes it → result is fed back → the model continues. **The per-turn step cap is no longer a hard-coded 8**: an effort level gives 32 / 64 / 128 / 200 steps, with a wall-clock budget and a context-is-filling guard on top. Hitting any one of them ends the turn with a message that says which one. **22 tools**, all defined in one schema shared by the prompt, the parser and the JSON tool array: `shell`, `world_info`, `now`, `calc`, `web_search` / `fetch_url`, `read_file` / `write_file` / `list_files` / `delete_file`, `file_info`, `edit_file` (exact snippet, fails loudly when missing or ambiguous), `apply_patch` (unified diff, zero writes on failure), `open_preview`, `todo_write`, `journal_read`, `kb_index` / `kb_search` (BM25 + CJK bigrams), `remember` / `recall` (long-term memory, secrets redacted on write), `bench`. `shell`, `write_file`, `delete_file`, `edit_file`, `apply_patch` and `bench` ask for confirmation first. |
+| **Inference engine** | **Adaptive sampling** from the measured decode speed: slow devices (<4 tok/s) get lower temperature and a shorter output cap so they finish in time; fast ones (>12) get more room and wider sampling. `top-p ∈ (0,1]` and `top-k ≥ 1` are always enforced — out-of-range values degrade or crash the sampler silently. **Two-level loop breaker**: the old check only saw "no new bytes for seconds", which misses paraphrased repetition; the new content-level check flags a ≥16-char segment repeated 3 times within the window. **Built-in benchmark** with a plain-language verdict. |
 | **Workspace** | App-private `filesDir/workspace`: paths are forced inside the root, writes are atomic. Browse / create / view / share / delete; tap an `.html` file for an in-app WebView preview (JS, CSS and relative assets work; toggle desktop mode or hand off to the system browser). |
 | **Terminal** | A **real shell**, cwd pinned to the workspace, 60-second timeout, truncated output, runs off the UI thread. Sandboxed by Android: app-private directories only, no root. |
 | **Chat history** | Multiple sessions per model, persisted on every change; the most recent 50 are kept per model. |
@@ -378,7 +381,7 @@ shipping a debug-signed build to users.
 - **The terminal is a real shell but sandboxed**: without root Android restricts it to app-private directories;
   no `/sdcard`, no `/system`. Commands time out at 60 s and output is truncated.
 - **Tool calling depends on instruction following**: small models may not follow the format; the instruct variant
-  usually does. At most 8 steps per turn.
+  usually does. The step budget per turn is configurable (32 / 64 / 128 / 200).
 - **No GPU offload**: Vulkan / OpenCL need `glslc` (Vulkan SDK) and friends. Inference is **pure CPU**.
 - **Multi-variant backends cover arm64 only**; `armeabi-v7a` is single-variant, and the speed-up varies by chip.
 - The list API requires `PUT`, which some corporate gateways block; the app then falls back to the first-page

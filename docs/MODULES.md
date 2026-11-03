@@ -6,7 +6,7 @@
 读完这一页，你应该能独立改这个仓库里的任何一处逻辑，而不必先通读全部源码。
 
 目录：
-[1 ModelApi](#1-modelapi--接口与降级) · [2 DownloadCenter](#2-downloadcenter--下载与续传) · [3 LocalModelStore](#3-localmodelstore--索引与原子写) · [4 Workspace](#4-workspace--文件系统收敛) · [5 Shell](#5-shell--真-shell) · [6 ToolCall](#6-toolcall--协议解析) · [7 AgentTools](#7-agenttools--工具执行) · [8 WebSearch](#8-websearch--联网检索) · [9 LlamaEngine](#9-llamaengine--会话管理) · [10 llama_bridge](#10-llama_bridgecpp--jni-桥接) · [11 ChatActivity](#11-chatactivity--对话页) · [12 MemoryBudget](#12-memorybudget--上下文预算) · [13 StorageGuard](#13-storageguard--存储体检) · [14 FsKit](#14-fskit--文件操作) · [15 Validators](#15-validators--输入收敛) · [16 PromptTemplate](#16-prompttemplate--提示词) · [17 TextKit](#17-textkit--文本工具) · [18 PerfStats](#18-perfstats--性能统计) · [19 MarkdownOutline](#19-markdownoutline--大纲) · [20 ToolGuard](#20-toolguard--防打转闸门)
+[1 ModelApi](#1-modelapi--接口与降级) · [2 DownloadCenter](#2-downloadcenter--下载与续传) · [3 LocalModelStore](#3-localmodelstore--索引与原子写) · [4 Workspace](#4-workspace--文件系统收敛) · [5 Shell](#5-shell--真-shell) · [6 ToolCall](#6-toolcall--协议解析) · [7 AgentTools](#7-agenttools--工具执行) · [8 WebSearch](#8-websearch--联网检索) · [9 LlamaEngine](#9-llamaengine--会话管理) · [10 llama_bridge](#10-llama_bridgecpp--jni-桥接) · [11 ChatActivity](#11-chatactivity--对话页) · [12 MemoryBudget](#12-memorybudget--上下文预算) · [13 StorageGuard](#13-storageguard--存储体检) · [14 FsKit](#14-fskit--文件操作) · [15 Validators](#15-validators--输入收敛) · [16 PromptTemplate](#16-prompttemplate--提示词) · [17 TextKit](#17-textkit--文本工具) · [18 PerfStats](#18-perfstats--性能统计) · [19 MarkdownOutline](#19-markdownoutline--大纲) · [20 ToolGuard](#20-toolguard--防打转闸门) · [21 Rounds](#21-rounds--单轮预算) · [22 ToolSchemas](#22-toolschemas--工具定义的真源) · [23 Journal](#23-journal--工作日志) · [24 Memory](#24-memory--长期记忆) · [25 KbIndex](#25-kbindex--工作区检索) · [26 Patcher](#26-patcher--补丁应用) · [27 PerfAdvisor](#27-perfadvisor--自适应采样) · [28 LoopBreaker](#28-loopbreaker--内容级熔断) · [29 Calc](#29-calc--确定性算术)
 
 ## 1 ModelApi · 接口与降级
 
@@ -778,3 +778,166 @@ return markdown.length() > 800 && extract(markdown).size() >= 2;
 
 写大文件的 `content` 可能几万字符。指纹只取前 `MAX_ARGS` 个字符，并且**按完整字符截断**
 （不切断 emoji 的代理对）——判重不需要全文，但截出来的键要能看懂。
+
+## 21 Rounds · 单轮预算
+
+**要解决什么**：`MAX_ROUNDS = 8` 是写死的。8 不是安全边界，只是当初随手写的数字 ——
+而「读→改→验」本身就要 3 步，稍复杂的任务必然撞上限，用户看到「已达上限」而事情只做了一半。
+
+### 21.1 为什么是三条线而不是一条
+
+```java
+public static Stop stopReason(int round, Budget budget, long nowMs, double ctxUse)
+```
+
+| 线 | 触发 | 为什么必须有 |
+|---|---|---|
+| 步数 | `round + 1 >= budget.rounds` | 防止模型无限空转 |
+| 墙钟 | `now - startedAt >= limitMs` | 步数再多，也不该让用户盯着几分钟没动静 |
+| 上下文 | `ctxUse >= 0.95` | 再喂一轮只会把最早的内容挤掉，模型看到残缺历史 |
+
+单靠步数不行：一个 `shell` 卡住 60 秒，8 步就是 8 分钟。
+单靠时间也不行：一次 `list_files` 只要 20 毫秒，时间预算能允许上千次空转。
+
+### 21.2 收尾必须说清是哪条线
+
+`stopMessage()` 按原因给不同措辞：步数用完 → 提示「回复继续或拆小目标」；
+时间到 → 「先给当前结论」；上下文满 → 「新开会话或让我先总结」。
+只说「已达上限」等于没说 —— 用户不知道该继续还是该换目标。
+
+### 21.3 空转判定比重复判定更隐蔽
+
+`ToolGuard` 原来只判「同一个调用又来一次」。但更常见的失败是**换着花样查**：
+`read_file` → `list_files` → `kb_search` → 再 `read_file`，每次都合法、都不重复，就是不写。
+`markIdleRound()` 连续 3 轮只读就收尾；任何一次危险工具（会改动状态）执行都会 `markProgress()` 清零。
+
+## 22 ToolSchemas · 工具定义的真源
+
+**要解决什么**：工具说明以前是一段手写散文，提示词能看懂、程序看不懂。
+想给外部模型发 OpenAI 兼容的 `tools` 数组时只能再手写一份，两边一漂移就是
+「提示词说能调、实际调不通」——不报错，只是模型一直在调一个不存在的工具。
+
+### 22.1 一份定义，三种渲染
+
+```java
+ToolSchemas.describe(enabled, zh)   // → 提示词里的文字说明
+ToolSchemas.toJson(enabled, zh)     // → OpenAI 兼容的 tools 数组
+AgentTools.names()                  // → 解析器白名单
+```
+
+三者都从同一张 `ALL` 表生成。新增工具只改一处，三边自动同步；
+`AgentToolsTest.everyEnabledToolHasSchema()` 会保证没有工具漏登记。
+
+### 22.2 为什么自己拼 JSON 而不用 JSONObject
+
+这个类要能在纯 JVM 单测里跑，而 Android 的 `org.json` 在单测环境是空壳（调用即抛异常）。
+自己拼的同时把转义写全（`"` `\` `\n` 与控制字符），比依赖一个在测试里会炸的实现稳。
+
+## 23 Journal · 工作日志
+
+**要解决什么**：上下文一裁，模型就忘了自己做过什么，于是反复重读同一个文件、或把改好的又改回去。
+
+### 23.1 为什么是外部日志而不是塞进上下文
+
+日志是**按需读**的（`journal_read` 工具）。它不占常驻窗口，也不会被裁剪弄丢。
+进提示词的只有 `summary()` 那两三行：执行次数 + 已改动的路径。
+
+### 23.2 两个细节都会咬人
+
+- **结果摘到首行**：`cat` 一个文件的结果可能是 6000 字，日志里只留首行 + 省略号。
+- **参数与结果都要脱敏**：日志会被回灌进上下文、也可能被用户导出。
+  实测过一次：参数里原样留着一个 GitHub token，结果被标成 `<redacted:github>`，参数却没有。
+  现在两边都过 `SecretVault.redact()`。
+
+## 24 Memory · 长期记忆
+
+**要解决什么**：跨会话记住用户。这件事最大的风险不是记不住，是**记得太死**。
+
+### 24.1 结构
+
+```text
+<id>|<timestamp>|<fact>
+```
+
+一行一条，`SecretVault` 在入口脱敏，`Memory.add()` 按 Jaccard 相似度 ≥0.6 判定为「同一件事」，
+**覆盖而不是追加** —— 否则写上半年就会出现「用户喜欢简短」和「用户喜欢详细」并列，
+模型只能猜哪个算数。
+
+### 24.2 为什么不用向量
+
+手机上跑 embedding 意味着再多一份 .so、再多一块内存、再多几十毫秒冷启动；
+而记忆条目通常只有几十条、每条一句话，BM25 + 二元组足够。
+向量检索真正的价值在「语义近似」（问「怎么让手机不卡」命中「内存优化」），
+那种情况让模型改写关键词更划算。
+
+### 24.3 淘汰与限额
+
+`MAX_FACTS = 120`，超出丢最旧的。记忆是「当前生效」的东西，不是存档。
+
+## 25 KbIndex · 工作区检索
+
+**要解决什么**：一个 40KB 的日志读进上下文就是上万 token，而模型只想知道「哪一行报了错」。
+
+`Retriever.chunk()` 按**行**滑窗切块（默认 900 字 / 重叠 2 行），保留 `文件#L行号` 作为来源标识。
+按行而不是按字符切，是因为代码/日志里一行通常就是一个语义单元，从中间切断的片段读起来毫无意义。
+
+### 25.1 中文为什么要二元组
+
+中英文混排时，直接按字符切会把「内存」拆成「内」「存」两个高频字，
+于是「内」和「存」各自命中半篇文章。按 2-gram 切（内存/存不/不足）既保留词边界，又不需要词典。
+
+### 25.2 增量重建
+
+`build(force)` 按 `lastModified` 比对：没改过的文件原样复用旧片段。
+工作区通常只有几 MB，但全量重切一次也要几十毫秒，按键就重建会卡。
+
+## 26 Patcher · 补丁应用
+
+**要解决什么**：`write_file` 是覆盖写。改 20KB 文件里的一行要重写另外 19.9KB，
+输出一截断，原文件就毁了一半。
+
+### 26.1 四条铁律
+
+1. **定位块必须逐字匹配**：上下文行 + 删除行，顺序也要一致。行号只是提示 —— 模型写的行号经常整体偏几行。
+2. **多处匹配就拒绝**：并给出候选行号。静默改错行比不改糟得多。
+3. **纯插入才允许按行号落点**：此时没有内容可校验。
+4. **全部片段先算成功才落盘**：中途失败不产生半成品。
+
+### 26.2 一个实现上的教训
+
+最初的实现把「上下文 + 删除行」拼成一个大块去 `indexOf`。这在 diff 里所有行都相邻时才成立；
+一旦中间夹着没写进 diff 的行，就永远匹配不上，报错还会指错地方。
+现在的做法是**逐行推导位置**：先定位锚点序列的起点，再逐行重写这一段。
+
+### 26.3 `edit_file` 与 `apply_patch` 的分工
+
+改一处用 `edit_file`（`old` 必须唯一命中）；同时改多处用 `apply_patch`。
+两者都不猜：宁可让模型重读一遍文件，也不能让它在「大概这一行」上落笔。
+
+## 27 PerfAdvisor · 自适应采样
+
+**要解决什么**：采样参数写死，于是快的时候保守、慢的时候让用户干等。
+
+按实测解速分四档：慢（<4 tok/s）降温度、压输出上限；快（>12）放宽输出与多样性。
+**全程兜底合法性**：`top-p` 为 0 会让采样器除零、`top-k` 为 0 直接崩，
+温度 NaN 会污染整条 logit 链。这些都不弹错误，只表现为「模型变笨了」。
+
+用户手动设过温度/输出上限时，`adaptive` 语义上让位给用户值（`advise()` 里 `userTemp >= 0` 分支）。
+
+## 28 LoopBreaker · 内容级熔断
+
+**要解决什么**：`LlamaEngine.isStuck()` 判的是「几秒内一个 token 没新增」，
+对「同一句话改几个字再说一遍」无能为力 —— 而后者恰恰是小上下文里最常见的坏输出。
+
+窗口 1200 字里，一段 ≥16 字的片段出现 ≥3 次就判定复读。
+阈值取 16 且要 3 次：代码块、表格、列表天然高频重复，阈值低一点就会把正常回答切断 ——
+**宁可漏判，不要误杀**。
+
+## 29 Calc · 确定性算术
+
+**要解决什么**：本地小模型三位数以上的乘除必错，而且错得看不出来 ——
+它给出的格式完全正常，只是数字不对。
+
+递归下降求值，支持 `+ - * / % ^ ()`、一元负号、`pi/e`、`sqrt()`，右结合幂（`2^3^2 = 512`）。
+`%` 的处理是个细节：`10%3` 是取模，`15%` 是百分之十五。只在 `%` 后面紧跟数字或 `(` 时才当取模，
+否则当中缀百分号 —— 否则「涨了 15%」会被算成「涨了 15 除以 1」。

@@ -4,6 +4,97 @@
 
 The full history, newest first.
 
+## alpha 1.0 — from "it can call tools" to "it can finish the job"
+
+The previous release made the tool-calling loop actually work. This one answers a more practical
+question: **now that it works, what is missing?**
+
+What was missing was not more buttons. It was four concrete things, each of which leaves a
+multi-step task half-finished.
+
+### 1. The hard-coded 8 steps was the biggest problem
+
+`MAX_ROUNDS = 8` was never a safety boundary, just a number picked once. "Read a file → edit one
+line → read it back to verify" already needs 3 steps; anything with a bit of exploration hits the
+cap, and the user is told "per-turn tool call limit reached" with the work half done.
+
+Now there are three limits; hitting any one ends the turn cleanly and says which:
+
+| Level | Steps | Wall clock |
+|---|---|---|
+| Quick | 32 | 3 min |
+| Standard | 64 | 8 min |
+| Deep | 128 | 20 min |
+| Extreme | 200 | 45 min |
+
+The third limit is **context nearly full** (≥95%): one more round only pushes out the earliest
+content, leaving the model with a fragment of history.
+
+Plus an **idle detector**: three consecutive rounds of read-only calls with no change at all ends
+the turn. This is subtler than "repeated the same call" — every call is legal and distinct, yet
+nothing is ever written.
+
+### 2. Once the context is trimmed, the model forgets what it did
+
+After tool results are trimmed away the model re-reads the same file, or undoes its own fix.
+
+- **Work journal** (`journal_read`): one line per tool call, append-only, costs nothing in the
+  resident context, fetched on demand.
+- **Plan list** (`todo_write`): the model writes it; each round the system feeds back
+  "1/3 done + remaining items". This works better than telling it "make a plan" — that is advice,
+  this is a fact.
+- Both are summarised into two or three lines of the system prompt.
+
+### 3. Editing a big file meant rewriting all of it
+
+`write_file` overwrites. To change one line in a 20KB file the model must reproduce the other
+19.9KB byte for byte; if it runs out of output the write is truncated and the original is destroyed.
+
+- `edit_file`: exact snippet replacement. Missing or ambiguous matches fail loudly with candidate
+  line numbers — it never guesses.
+- `apply_patch`: unified diff. Anchors must match literally, multiple matches are rejected, and all
+  hunks are computed in memory before anything is written.
+
+### 4. The model invents arithmetic and device facts
+
+- `calc`: deterministic evaluation (`+ - * / % ^ ()`, `pi/e`, `sqrt`, and `15%` as a suffix
+  percent). Three-digit multiplication is where small models get it wrong, invisibly.
+- `world_info`: model, ABI, memory, storage, battery, loaded model, context usage, measured speed.
+  If it can see them, it does not have to guess.
+- `now` / `file_info`: time and file metadata, for the same reason.
+
+### Also in this release
+
+- **`kb_index` / `kb_search`**: a workspace search index (BM25 + CJK bigrams). A 40KB log is tens of
+  thousands of tokens; the model only wants the line that failed.
+- **Long-term memory** (`remember` / `recall`): structured `id | ts | fact`, updated by similarity
+  rather than appended, and redacted on write (GitHub / OpenAI / AWS / Slack / JWT / private-key
+  blocks / `password=xx` / `user:pass` in URLs).
+- **Adaptive sampling** from measured decode speed, with `top-p ∈ (0,1]` and `top-k ≥ 1` always
+  enforced — out-of-range values degrade or crash the sampler silently.
+- **Content-level loop breaker**: the old check only saw "no new bytes for seconds", missing
+  paraphrased repetition. A ≥16-char segment repeated 3 times inside the window now breaks the loop.
+- **Benchmark** (`bench` / menu item): two fixed cases and a plain-language verdict.
+- **One tool schema** (`ToolSchemas`) shared by the prompt, the parser whitelist and the JSON
+  `tools` array for external APIs. It used to be written three times; one drift and the prompt
+  advertises a tool that cannot run.
+- Version is now **alpha 1.0** (versionCode 17). Alpha means the interfaces may still move.
+
+### How far this was verified
+
+- Unit tests **118 → 204, all green** (12 new test classes). The en/zh string resources are
+  checked key by key (242 : 242) and the check is now a test.
+- All of `src/main/java` compiles under JDK 17 against hand-written Android / AndroidX / Material /
+  Markwon stubs (catches syntax, type and signature errors).
+- **Not verified**: real-device behaviour, the native build, and Lint. Only the repository's
+  Android CI can prove those.
+
+### Still open
+
+`ChatActivity` grew again (~2100 lines). This release added six UI surfaces to it: effort level,
+todo, journal, tool catalogue, memory, benchmark. It should be split — but splitting the UI in the
+same PR as adding capabilities makes the diff unreviewable. Next time, on its own.
+
 ## v2.8.0 — making "the agent can call tools" actually work on models with a function-call template
 
 No new features. This release is about one class of problem: **things that are claimed to work but
@@ -67,6 +158,8 @@ Three causes stacked on top of each other; each one alone is enough to break the
 ### Docs
 
 - `versionCode 15 → 16`, `versionName 2.7.0 → 2.8.0`.
+- `ARCHITECTURE` now states the invariant "the same role must never appear twice in a row in the
+  request"; `MODULES` has a new ToolGuard section.
 
 ---
 

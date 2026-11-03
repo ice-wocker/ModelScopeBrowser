@@ -247,4 +247,30 @@
     <string name="lang_zh">中文</string>
     <string name="lang_en">English</string>
     <string name="lang_changed">Language changed</string>
+
+    <!-- alpha 1.0：单轮预算 / 待办 / 日志 / 工具清单 / 记忆 / 基准 -->
+    <string name="agent_step_budget">Agent running · step %1$d of %2$d</string>
+    <string name="agent_idle_stop">Several rounds only looked things up without changing anything; stopping so it does not loop. Ask for a concrete next action, or split the task.</string>
+    <string name="agent_effort_title">Step budget: %1$s (%2$d steps)</string>
+    <string name="agent_effort_title_plain">Step budget for one turn</string>
+    <string name="agent_effort_item">%1$s · %2$d steps / %3$d min</string>
+    <string name="agent_todo_title">Plan / TODO</string>
+    <string name="agent_todo_empty">No plan yet. The model writes one when a task needs several steps.</string>
+    <string name="agent_journal_title">Work journal</string>
+    <string name="agent_tools_title">Tools</string>
+    <string name="agent_tools_count">%1$d of %2$d tools enabled</string>
+    <string name="agent_memory_title">Long-term memory</string>
+    <string name="agent_memory_empty">Empty. The model saves a fact here when it should survive to the next chat. Secrets are redacted on write.</string>
+    <string name="agent_memory_clear">Clear all</string>
+    <string name="agent_memory_cleared">Memory cleared</string>
+    <string name="agent_memory_removed">Removed</string>
+    <string name="agent_bench">Benchmark</string>
+    <string name="agent_bench_running">Benchmarking… this takes a moment</string>
+    <string name="agent_bench_failed">Benchmark produced no data (model not ready?)</string>
+    <string name="agent_bench_busy">A reply is still generating; benchmark after it finishes</string>
+    <string name="agent_bench_no_model">Load a model first</string>
+
+    <string name="chat_prompt_todo">Current plan (maintained by you via todo_write):</string>
+    <string name="chat_prompt_journal">What you already did in this chat:</string>
+    <string name="chat_prompt_memory">Facts remembered about this user (may be irrelevant):</string>
 </resources>
