@@ -597,8 +597,10 @@ Java_com_mscope_browser_llama_LlamaBridge_nativeGenerate(
     // 顺序：重复惩罚必须排在截断之前。它要看到的是「模型原来的分布」，
     // 放到 top-k/top-p 之后就只能惩罚已经被截断的候选，几乎不起作用。
     if (repeatLastN > 0 && repeatPenalty > 0.0f && std::fabs(repeatPenalty - 1.0f) > 1e-6f) {
+        // b11205 起签名多了一个 n_vocab：新的 penalties 实现不再自己查词表，
+        // 得把模型词表大小传进去（内部用它分配计数数组）。
         llama_sampler_chain_add(smpl, llama_sampler_init_penalties(
-                repeatLastN, repeatPenalty, 0.0f, 0.0f));
+                llama_vocab_n_tokens(s->vocab), repeatLastN, repeatPenalty, 0.0f, 0.0f));
     }
     if (topK > 0) llama_sampler_chain_add(smpl, llama_sampler_init_top_k(topK));
     if (topP > 0.0f && topP < 1.0f) llama_sampler_chain_add(smpl, llama_sampler_init_top_p(topP, 1));

@@ -1,8 +1,11 @@
 package com.mscope.browser.core;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -207,8 +210,7 @@ public final class Memory {
             loaded = true;
             if (file == null || !file.exists()) return;
             try {
-                byte[] b = Files.readAllBytes(file.toPath());
-                facts = Memory.parse(new String(b, StandardCharsets.UTF_8));
+                facts = Memory.parse(new String(readAll(file), StandardCharsets.UTF_8));
             } catch (Exception e) {
                 facts = new ArrayList<>();
             }
@@ -223,7 +225,7 @@ public final class Memory {
                     parent.mkdirs();
                 }
                 File tmp = new File(file.getPath() + ".tmp");
-                Files.write(tmp.toPath(), render(facts).getBytes(StandardCharsets.UTF_8));
+                writeAll(tmp, render(facts).getBytes(StandardCharsets.UTF_8));
                 if (!tmp.renameTo(file)) {
                     //noinspection ResultOfMethodCallIgnored
                     file.delete();
@@ -233,6 +235,25 @@ public final class Memory {
             } catch (Exception ignored) {
                 // 写不进去就只留内存态：记忆不是关键路径，不能因此打断对话
             }
+        }
+    }
+
+    // minSdk 是 24，java.nio.file 要 26，所以落盘只走 java.io。
+    // 记忆文件很小（上限 120 条），一次读全量不至于有内存压力。
+    static byte[] readAll(File f) throws java.io.IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (InputStream in = new FileInputStream(f)) {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+        }
+        return out.toByteArray();
+    }
+
+    static void writeAll(File f, byte[] data) throws java.io.IOException {
+        try (FileOutputStream out = new FileOutputStream(f)) {
+            out.write(data);
+            out.flush();
         }
     }
 }
