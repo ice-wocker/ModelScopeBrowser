@@ -1,0 +1,407 @@
+{
+  "_note": "由 scripts/fetch_releases.py 从 GitHub API 生成，请勿手改。构建时只读本文件，不联网。",
+  "generated_at": "2026-11-02T10:33:08Z",
+  "owner": "ice-wocker",
+  "releases": {
+    "KayaGo": {
+      "asset": "KayaGo-1.2.0.apk",
+      "body": "## 这一版做了什么\n\n把 AI 的走子评估从写死的 if/else 抽成「25 维特征 × 权重」的线性策略，参数可以在运行时替换；\n配套一整套**自对弈进化（RSI 式）闭环**工具：\n\n自对弈产数据 → 训练 → 跑分验证 → 晋升为新冠军 → 回到第一步\n\n- `tools/SelfPlayData`：自对弈，记录每个局面的根访问分布 + 每局胜负（`RESULT`）\n- `tools/Trainer`：**混合目标** = 策略蒸馏（拟合访问分布）+ **胜负策略梯度**\n  （`-pgWeight·outcome·log p(实际着法)`），并把胜负按行棋方做**优势归零**去偏\n- `tools/MatchRunner`：对局跑分（基线权重写死，避免「自己打自己」），带 Wilson 95% 下界\n- `tools/Evolve`：主循环，含「开局不变量」硬闸门与 Wilson 下界晋升判据\n\n## 实测结果（如实说明）\n\n本轮进化**没有**产出比手写基线更强的参数：\n\n| 候选改动 | 结果（9 路，150ms/手 或 60ms/手） |\n| --- | --- |\n| 自对弈蒸馏候选（16 局） | 10 : 6（62.5%） |\n| 同一候选复核（48 局） | 21 : 27（43.8%） |\n| 先验温度 3 / 5 / 14 / 24 | 30% / 30% / 45% / 46% |\n| puctC 1.0 / 2.4 | 36% / 35% |\n| 蒸馏+胜负梯度（未去偏，32 局） | 10 : 22（31.3%） |\n| 蒸馏+胜负梯度（优势归零，32 局） | 14 : 18（43.8%） |\n\n要点：\n\n- 16 局的 62.5% 只是噪声，48 局复核掉回 43.8%；改用 Wilson 下界判据后这类候选会被直接拒绝。\n- 胜负信号「去偏」是必须的：直接拿胜负当回报时，白棋胜率高会让所有白方局面吃正回报、\n  黑方局面吃负回报，而特征不含颜色；去偏后从 31.3% 回到 43.8%。\n- 但 Wilson 下界在 32 局时需要约 **65%** 胜率才放行，而这类方法的一步改进通常只有几个百分点，\n  小样本下本就无法被证明。想看到真实增益，需要把自对弈规模提到成千上万局，并引入价值基线。\n\n**交付参数保持最初的手写基线**（本版 APK 与上一版棋力相同，重点是进化/验收机制）。\n自测 53/53 通过。\n\n## 安装\n\n下载 `KayaGo-1.2.0.apk` 直接安装（Android 8.0+）。",
+      "downloads": 92,
+      "history": [
+        {
+          "asset": "KayaGo-1.2.0.apk",
+          "body": "## 这一版做了什么\n\n把 AI 的走子评估从写死的 if/else 抽成「25 维特征 × 权重」的线性策略，参数可以在运行时替换；\n配套一整套**自对弈进化（RSI 式）闭环**工具：\n\n自对弈产数据 → 训练 → 跑分验证 → 晋升为新冠军 → 回到第一步\n\n- `tools/SelfPlayData`：自对弈，记录每个局面的根访问分布 + 每局胜负（`RESULT`）\n- `tools/Trainer`：**混合目标** = 策略蒸馏（拟合访问分布）+ **胜负策略梯度**\n  （`-pgWeight·outcome·log p(实际着法)`），并把胜负按行棋方做**优势归零**去偏\n- `tools/MatchRunner`：对局跑分（基线权重写死，避免「自己打自己」），带 Wilson 95% 下界\n- `tools/Evolve`：主循环，含「开局不变量」硬闸门与 Wilson 下界晋升判据\n\n## 实测结果（如实说明）\n\n本轮进化**没有**产出比手写基线更强的参数：\n\n| 候选改动 | 结果（9 路，150ms/手 或 60ms/手） |\n| --- | --- |\n| 自对弈蒸馏候选（16 局） | 10 : 6（62.5%） |\n| 同一候选复核（48 局） | 21 : 27（43.8%） |\n| 先验温度 3 / 5 / 14 / 24 | 30% / 30% / 45% / 46% |\n| puctC 1.0 / 2.4 | 36% / 35% |\n| 蒸馏+胜负梯度（未去偏，32 局） | 10 : 22（31.3%） |\n| 蒸馏+胜负梯度（优势归零，32 局） | 14 : 18（43.8%） |\n\n要点：\n\n- 16 局的 62.5% 只是噪声，48 局复核掉回 43.8%；改用 Wilson 下界判据后这类候选会被直接拒绝。\n- 胜负信号「去偏」是必须的：直接拿胜负当回报时，白棋胜率高会让所有白方局面吃正回报、\n  黑方局面吃负回报，而特征不含颜色；去偏后从 31.3% 回到 43.8%。\n- 但 Wilson 下界在 32 局时需要约 **65%** 胜率才放行，而这类方法的一步改进通常只有几个百分点，\n  小样本下本就无法被证明。想看到真实增益，需要把自对弈规模提到成千上万局，并引入价值基线。\n\n**交付参数保持最初的手写基线**（本版 APK 与上一版棋力相同，重点是进化/验收机制）。\n自测 53/53 通过。\n\n## 安装\n\n下载 `KayaGo-1.2.0.apk` 直接安装（Android 8.0+）。",
+          "downloads": 92,
+          "name": "KayaGo 1.2.0 · 自对弈进化框架",
+          "published_at": "2026-09-26",
+          "sha256": "0eb572a8a7f57f8f5d09393bae8e3fb130de0a0f94140a7908bef118b9628de1",
+          "size": 70972,
+          "tag": "v1.2.0",
+          "url": "https://github.com/ice-wocker/KayaGo/releases/download/v1.2.0/KayaGo-1.2.0.apk",
+          "version_code": null
+        },
+        {
+          "asset": "KayaGo-1.1.0.apk",
+          "body": "## 下载\n\n**KayaGo-1.1.0.apk**（约 68 KB）— Android 8.0+，手机上下载后直接安装（需允许「安装未知来源应用」）。\n\n## 这一版改了什么\n\n### AI 棋力（有跑分证据，不是凭感觉）\n\n先说清上一版为什么弱：**纯 UCT 在空盘和稀疏局面下胜率几乎是纯噪声**，\n而旧版只把启发式打分用来筛候选、没当成先验，所以它会在开局随手走二路这种废棋，\n中盘也常常在几个差不多的点之间乱选。\n\n这一版做了三件事：\n\n1. **根节点 PUCT + 启发式先验**——把棋理打分（提子/救棋/自紧气/连络/线位/与前手距离/\n   角部着点）softmax 成先验分布，按 `Q + c·P·√N/(1+n)` 选择。开局现在会自然占角。\n2. **根节点 RAVE / AMAF**——推演窗口内出现过的着法也算一次访问，访问数少时更可靠。\n3. **推演回报改为「按分差折算胜率」**——非胜即负的回报在一边倒局面下所有着法都挤在\n   0/1 附近，搜索分辨不出好坏；分差回报能区分「输 3 目」和「输 20 目」。\n\n**跑分结果**（`tools/MatchRunner`，两组配置互相对弈、每局交换黑白，9 路 150ms/手）：\n\n- 新引擎 vs 旧版纯 UCB1：**12 : 4（75.0%）**\n- 分差回报单独贡献：**6 : 4**\n\n另外新增了回归测试：空盘第一手不得走一路/二路。\n\n### 界面（观感重做）\n\n- 自绘木纹渐变棋盘 + 三层柔和阴影、立体棋子（渐变/投影/高光）\n- 坐标标注、星位、最后一手标记、落子 140ms 缩放淡入动画、触感反馈\n- 顶部棋手卡片：执黑执白、提子数、行棋方高亮、AI 思考进度条\n- 底部图标操作栏（自绘 vector 图标，思考时自动禁用）\n- 新对局设置合并成单个分段选择对话框；形势判断与终局结算改成自定义对话框\n\n### 规则内核\n\n- 位置超级劫统一由 Board 维护\n- 落子只重算自己这块棋的气数、撤销只在必要时才做连通性检查，性能翻倍\n- 自测 **53 项断言全部通过**\n\n## 仍然是同一个诚实的提醒\n\n引擎是**从零手写的传统 MCTS**，没有神经网络、没有权重文件。\n9 路大约业余级位水平，13/19 路明显更弱。想「最强」请用 KataGo。\n\n想让它更强：把「AI 棋力」调到最高档（9 路约 12 秒/手，19 路约 17 秒/手）。\n\n## 安装包校验\n\n```\nSHA-256  bf854b02c868f409250d763c954ea41083d9420ee65eb8c0b2e40e195623cdc2\n```\n\n## 源码\n\nhttps://github.com/ice-wocker/KayaGo",
+          "downloads": 0,
+          "name": "KayaGo 1.1.0 · AI 明显变强 + 界面重做",
+          "published_at": "2026-09-26",
+          "sha256": "bf854b02c868f409250d763c954ea41083d9420ee65eb8c0b2e40e195623cdc2",
+          "size": 69364,
+          "tag": "v1.1.0",
+          "url": "https://github.com/ice-wocker/KayaGo/releases/download/v1.1.0/KayaGo-1.1.0.apk",
+          "version_code": null
+        },
+        {
+          "asset": "KayaGo-1.0.0.apk",
+          "body": "## 下载\n\n**KayaGo-1.0.0.apk**（约 40 KB）— Android 8.0+，手机上下载后直接安装（需允许「安装未知来源应用」）。\n\n## 这一版有什么\n\n- 9 / 13 / 19 路棋盘，5 档 AI 棋力（0.4 秒 ~ 8 秒/手）\n- 执黑 / 执白任选，人机对弈\n- 悔棋、停一手、认输、新局\n- **提示**：让 AI 给出建议着法并标在棋盘上\n- **形势判断**：随机推演 600 局估算领先子数，并标出已确定的归属\n- 中国规则数子、禁止自杀、位置超级劫\n- 零第三方依赖，纯 Java 绘制界面；整个安装包约 40 KB\n\n## 棋力说明（请先读）\n\nAI 是**从零手写的传统 MCTS 引擎**：没有神经网络、没有权重文件、没有人类棋谱训练。\n\n- **9 路**：大约业余级位水平，初学者到入门爱好者可以一战\n- **13 / 19 路**：搜索空间大得多，棋力明显弱于 9 路，适合休闲\n\n它**不是** KataGo / Leela Zero 那种职业级引擎。要「最强」请用 KataGo。\n\n## 安装包校验\n\n```\nSHA-256  232194ba35aca87f69bbb9b0635f5112471307a76dca96afc83906510515d634\n```\n\n## 源码\n\nhttps://github.com/ice-wocker/KayaGo\n\n## 自测\n\n仓库内 `tools/EngineSelfTest.java` 覆盖 50 项断言（提子、禁止自杀、劫与超级劫、\n真假眼、数子、随机落子+逆序撤销一致性、形势判断、AI 能否吃掉被打吃的大龙、AI 自对弈），\n全部通过。",
+          "downloads": 0,
+          "name": "KayaGo 1.0.0 · 可直接安装的围棋 AI",
+          "published_at": "2026-09-26",
+          "sha256": "232194ba35aca87f69bbb9b0635f5112471307a76dca96afc83906510515d634",
+          "size": 39588,
+          "tag": "v1.0.0",
+          "url": "https://github.com/ice-wocker/KayaGo/releases/download/v1.0.0/KayaGo-1.0.0.apk",
+          "version_code": null
+        }
+      ],
+      "name": "KayaGo 1.2.0 · 自对弈进化框架",
+      "published_at": "2026-09-26",
+      "sha256": "0eb572a8a7f57f8f5d09393bae8e3fb130de0a0f94140a7908bef118b9628de1",
+      "size": 70972,
+      "tag": "v1.2.0",
+      "url": "https://github.com/ice-wocker/KayaGo/releases/download/v1.2.0/KayaGo-1.2.0.apk",
+      "version_code": null
+    },
+    "ModelScopeBrowser": {
+      "asset": "ModelScope-Models-2.7.0.apk",
+      "body": "**Full Changelog**: https://github.com/ice-wocker/ModelScopeBrowser/compare/v2.6.0...v2.7.0",
+      "downloads": 4,
+      "history": [
+        {
+          "asset": "ModelScope-Models-2.7.0.apk",
+          "body": "**Full Changelog**: https://github.com/ice-wocker/ModelScopeBrowser/compare/v2.6.0...v2.7.0",
+          "downloads": 4,
+          "name": "v2.7.0",
+          "published_at": "2026-11-01",
+          "sha256": "c302a0ff3b841f93c4c163476d8da5ccf84deebb72bbfacc7c90ad8240a852bd",
+          "size": 8422081,
+          "tag": "v2.7.0",
+          "url": "https://github.com/ice-wocker/ModelScopeBrowser/releases/download/v2.7.0/ModelScope-Models-2.7.0.apk",
+          "version_code": null
+        },
+        {
+          "asset": "ModelScope-Models-2.6.0.apk",
+          "body": "**Full Changelog**: https://github.com/ice-wocker/ModelScopeBrowser/compare/v2.5.0...v2.6.0",
+          "downloads": 9,
+          "name": "v2.6.0",
+          "published_at": "2026-11-01",
+          "sha256": "eebc1ef29427366c2e1991681b45a09fd53d1ac97398e4b91771fba63d895ed2",
+          "size": 8357793,
+          "tag": "v2.6.0",
+          "url": "https://github.com/ice-wocker/ModelScopeBrowser/releases/download/v2.6.0/ModelScope-Models-2.6.0.apk",
+          "version_code": null
+        },
+        {
+          "asset": "ModelScope-Models-2.5.0.apk",
+          "body": "## v2.5.0 — 补齐「该有但一直没有」的东西\n\n这一版做两件事：把 `core/` 纯逻辑层立起来，并把此前「看起来能用、偶尔不对」的地方钉死。\n\n### 新增 `core/` 纯逻辑层（零 Android 依赖，全部有 JVM 单测）\n\n| 类 | 职责 |\n|---|---|\n| `MemoryBudget` | 读 `/proc/meminfo`，按设备可用内存推荐上下文档位 |\n| `StorageGuard` | 下载前空间判定；模型库索引与磁盘交叉体检 |\n| `FsKit` | 路径收敛、原子写、GGUF / ZIP / SQLite 魔数嗅探、目录统计 |\n| `Validators` | 采样参数收敛、URL 白名单、内网判定 |\n| `PromptTemplate` | 四种预设；≤2.5B 小模型自动用压缩版工具说明 |\n| `TextKit` | UTF-8 安全截断、文件名清洗、token 粗估、句子切分 |\n| `PerfStats` | 滚动均值 / P90 / 首字延迟 / 劣化判定 |\n| `MarkdownOutline` | 跳过围栏代码块的标题大纲抽取 |\n\n真接进去了：对话页按设备内存定默认上下文、参数弹窗走 `Validators` 并回显修正原因、状态条显示均值 / P90、菜单新增「本篇大纲」「推理性能」、下载空间判定与 GGUF 校验换新、`fetch_url` 增加内网拦截。\n\n### 修掉的真缺陷\n\n- **点了下载一直显示下载中**：`start()` 先投递后登记，单线程池可抢先 `finish()` 摘表，随后又被塞回 → 僵尸任务。\n- **点了取消永远不结束**：`run()` 入口的提前返回绕过了 `tasks.remove()`。\n- **native 层 use-after-free**：`acquire()` 放锁与抢会话锁之间的空档，会话可被释放 → 改引用计数。\n- **KV 前缀复用位置错位**：上一轮输出 token 留在 KV 但 `s->kv` 只记 prompt，下一轮前缀匹配整体错位、`seq_rm` 删错区间 → 多轮对话答非所问、偶发崩溃。\n- **中文被 JNI 掐断**：`std::u16string(s.begin(), s.end())` 按字节加宽，中文乱码、emoji 直接让 JNI 拒绝。\n- **按了停止工具还在跑**：智能体循环只在生成阶段检查取消。\n- **「继续生成」重复输出**：续写上下文没带已写出部分。\n- **本地网页预览可读应用私有文件**：`allowUniversalAccessFromFileURLs` 让模型生成的 HTML 能 `fetch('file:///data/data/.../chats.json')`。\n- 另有十余条：详情页进度回调重建对象、长按菜单删错消息、`LlamaEngine.load()` 检查置位不原子、消息裁剪跳过 system、终端缓冲无上限、索引不去重、删不掉的幽灵模型等。\n\n### 工程与文档\n\n- CI 拆 `verify`（单测 + Lint）与 `build`（APK + 产物校验），新增 native 构建缓存、并发组、`apksigner` / `aapt2` 产物校验，tag 上拒绝 debug 签名。\n- 单测 40 → 87 个，全绿。\n- 新增 `docs/`：完整手册、架构与数据流、故障排查、性能数据、图解、FAQ、更新日志，共 10 份文档 + 配图。\n\n### 本次 APK\n\n`ModelScope-Models-2.5.0.apk` · versionCode 13 · 正式签名 · ABI `arm64-v8a` / `armeabi-v7a` · minSdk 24\n\n> 已知局限：纯 CPU 推理，未开 GPU 后端；本轮改为编译期 + 单测 + 静态推导验证，未做真机运行时回归。多轮对话的 KV 前缀复用修复最值得真机复核。\n\n\n## What's Changed\n* chore: bump androidx.swiperefreshlayout:swiperefreshlayout from 1.1.0 to 1.2.0 by @dependabot[bot] in https://github.com/ice-wocker/ModelScopeBrowser/pull/6\n* chore: bump androidx.appcompat:appcompat from 1.7.0 to 1.8.0 by @dependabot[bot] in https://github.com/ice-wocker/ModelScopeBrowser/pull/5\n* chore: bump com.google.android.material:material from 1.13.0 to 1.14.0 by @dependabot[bot] in https://github.com/ice-wocker/ModelScopeBrowser/pull/4\n* ci: bump actions/setup-java from 4 to 6 by @dependabot[bot] in https://github.com/ice-wocker/ModelScopeBrowser/pull/3\n* ci: bump actions/upload-artifact from 4 to 7 by @dependabot[bot] in https://github.com/ice-wocker/ModelScopeBrowser/pull/2\n* ci: bump softprops/action-gh-release from 2 to 3 by @dependabot[bot] in https://github.com/ice-wocker/ModelScopeBrowser/pull/1\n\n## New Contributors\n* @dependabot[bot] made their first contribution in https://github.com/ice-wocker/ModelScopeBrowser/pull/6\n\n**Full Changelog**: https://github.com/ice-wocker/ModelScopeBrowser/compare/v2.4.1...v2.5.0",
+          "downloads": 1,
+          "name": "v2.5.0 — core 纯逻辑层 + 一轮系统性纠错",
+          "published_at": "2026-11-01",
+          "sha256": "27e565f832b260bfbb2b3815e066ada614a727d228c3bead096894e42ca52ea2",
+          "size": 8329961,
+          "tag": "v2.5.0",
+          "url": "https://github.com/ice-wocker/ModelScopeBrowser/releases/download/v2.5.0/ModelScope-Models-2.5.0.apk",
+          "version_code": null
+        },
+        {
+          "asset": "ModelScope-Models-2.4.1.apk",
+          "body": "**Full Changelog**: https://github.com/ice-wocker/ModelScopeBrowser/compare/v2.4.0...v2.4.1",
+          "downloads": 80,
+          "name": "v2.4.1",
+          "published_at": "2026-09-27",
+          "sha256": "6fa6f60313824dca39f2199300b241f87791370fcaf9837718e2884aebe7d8ba",
+          "size": 8156911,
+          "tag": "v2.4.1",
+          "url": "https://github.com/ice-wocker/ModelScopeBrowser/releases/download/v2.4.1/ModelScope-Models-2.4.1.apk",
+          "version_code": null
+        },
+        {
+          "asset": "ModelScope-Models-2.4.0.apk",
+          "body": "**Full Changelog**: https://github.com/ice-wocker/ModelScopeBrowser/compare/v2.3.1...v2.4.0",
+          "downloads": 2,
+          "name": "v2.4.0",
+          "published_at": "2026-09-27",
+          "sha256": "4ed80f593fe4a9181277afb3fb58e03ea7b2a5a1c0eb30c2525724ab2e5599c1",
+          "size": 8155603,
+          "tag": "v2.4.0",
+          "url": "https://github.com/ice-wocker/ModelScopeBrowser/releases/download/v2.4.0/ModelScope-Models-2.4.0.apk",
+          "version_code": null
+        },
+        {
+          "asset": "ModelScope-Models-2.3.1.apk",
+          "body": "**Full Changelog**: https://github.com/ice-wocker/ModelScopeBrowser/compare/v2.3.0...v2.3.1",
+          "downloads": 3,
+          "name": "v2.3.1",
+          "published_at": "2026-09-27",
+          "sha256": "cd3d6b71ff0a72feb3d6c0fd00dc7a6b1cc1bcaf5e16e53871d173ff46c462d8",
+          "size": 8145251,
+          "tag": "v2.3.1",
+          "url": "https://github.com/ice-wocker/ModelScopeBrowser/releases/download/v2.3.1/ModelScope-Models-2.3.1.apk",
+          "version_code": null
+        },
+        {
+          "asset": "ModelScope-Models-2.3.0.apk",
+          "body": "## v2.3.0：arm64 多档指令集 + FlashAttention + KV 量化\n\n### 1. 多档指令集：让新芯片跑更快的量化内核\n以前是单一构建，固定 `armv8.2-a+dotprod+fp16`，所有 arm64 机型只能跑同一档，且缺 dotprod 的老机被直接拒绝。\n现在改用 `GGML_CPU_ALL_VARIANTS`，为 Android arm64 编出多份 CPU 后端，运行时由 `ggml_backend_score()` 按 `HWCAP` 打分，**只加载分数最高的那一档**：\n\n| 后端 | 指令集 | 典型芯片 |\n|---|---|---|\n| android_armv8.0_1 | 基线 armv8-a | 所有 arm64（兜底） |\n| android_armv8.2_1/2 | dotprod / +fp16 | 2018 年后的处理器 |\n| android_armv8.6_1 | **+i8mm** | 骁龙 8 Gen 1+ / 天玑 9000+ 等 |\n| android_armv9.0_1 | +SVE2 | 天玑 9200+ 等 |\n| android_armv9.2_1/2 | +SVE/+SME | 最新旗舰 |\n\n产物反汇编核对：armv8.0 档 0 条 `sdot`/`smmla`，armv8.2 档 747 条 `sdot`，armv8.6 档额外 174 条 `smmla`(i8mm)，armv9.0 档 308 条 `smmla`。\n\n**兼容性反而更好**：基线改回 armv8-a 后，移除了原先 dotprod+fp16 的硬门槛，老 arm64 也能跑了。\n\n### 2. FlashAttention + KV 缓存量化\n- 上下文开启 `flash_attn_type = AUTO`（模型支持时减少注意力读写）\n- **KV 缓存量化为 q8_0**：注意力读写量减半，KV 内存约为原来的 1/2\n\n### 3. 输出上限进一步放开\n- 单次最长输出默认 **1024 → 4096**（可调至 8192）\n- 默认上下文 **4096 → 8192**（可调至 32768）\n- 输出必须挤在上下文里（上下文 = 提示词/历史 + 本次输出），设置时会自动收敛到 3/4 以内\n- 新增「**继续生成**」：长按回复即可接着往下写\n\n### 说明\n- 本次为**纯 CPU** 推理：Vulkan/OpenCL 卸载所需工具链（glslc / Vulkan SDK）在构建环境不具备，未启用\n- 因此提速幅度**与芯片强相关**：支持 i8mm/SVE 的新机型收益最大（量化矩阵乘走 `smmla`），老机型与之前持平\n- 由于多了几份后端 `.so`，安装包由 12 MB 增至约 17 MB\n- 安装包为 CI 正式签名（与仓库 `dist/` 同一签名），可直接覆盖安装\n\n**Full Changelog**: https://github.com/ice-wocker/ModelScopeBrowser/compare/v2.2.0...v2.3.0",
+          "downloads": 3,
+          "name": "v2.3.0",
+          "published_at": "2026-09-27",
+          "sha256": "3b9c0197abd633ac1d451c047b4f4f902bfc3abd3678466f09e6cdb300f4a0a9",
+          "size": 16914515,
+          "tag": "v2.3.0",
+          "url": "https://github.com/ice-wocker/ModelScopeBrowser/releases/download/v2.3.0/ModelScope-Models-2.3.0.apk",
+          "version_code": null
+        },
+        {
+          "asset": "ModelScope-Models-2.2.0.apk",
+          "body": "## v2.2.0：对话页升级为智能体界面\n\n**输出上限放开**\n- 单次生成长度默认 256 → **1024 tokens**（可调上限 8192）\n- 默认上下文窗口 2048 → **4096**（可调上限 16384）\n\n**联网搜索（开关式）**\n- 对话页「联网」打开后，每次提问先检索网页再作答，并在末尾列出参考来源\n- 无需 API Key（DuckDuckGo，失败退回 Bing）；也可 `/search 关键词`\n\n**工作区文件 + HTML 预览**\n- 模型输出带文件名的代码块（如 `html filename=index.html`）或 html 代码块自动保存到应用私有工作区\n- 新增工作区页（浏览 / 新建 / 查看 / 分享 / 删除）与 HTML 预览页（WebView，支持 JS/CSS/相对资源）\n\n**本机终端**\n- 受限命令直接读写手机上的工作区：`ls / cd / cat / head / wc / write / append / mkdir / rm / mv / cp / find / tree / echo / date / uname / df / clear`\n- 对话内斜杠命令直通：`/ls`、`/cat f`、`/write f 内容`、`/run tree` …\n\n**界面**\n- AI 回复改用 Markdown 渲染（标题 / 列表 / 引用 / 表格 / 代码块），流式过程先用纯文本\n- 新增工具卡片、能力栏、快捷示例与输入框工具菜单\n\n> 安装包为正式签名（与 `dist/` 完全一致）。修图：v2.1 的包不可用（JNI 回调被混淆），v2.1.1 起已修复。",
+          "downloads": 1,
+          "name": "v2.2.0",
+          "published_at": "2026-09-27",
+          "sha256": "fff023c6eac9b38e09093856f6710deb18198aef88835ca0795159a55ce4e620",
+          "size": 11680527,
+          "tag": "v2.2.0",
+          "url": "https://github.com/ice-wocker/ModelScopeBrowser/releases/download/v2.2.0/ModelScope-Models-2.2.0.apk",
+          "version_code": null
+        },
+        {
+          "asset": "ModelScope-Models-2.1.1.apk",
+          "body": "## 修复\n\n- 修复 release 包（R8 混淆后）加载任意模型都失败的问题：`no non-static method \"Lxxx;.onToken(Ljava/lang/String;)V\"`\n  - 原因：native 层用字面方法名回调 `onToken`，v2.1 的 proguard 规则只保住了 native 方法与 `LlamaBridge` 本身，方法名被 R8 重命名\n  - 修复：保留 `LlamaBridge$TokenCallback` 接口及所有实现类的 `onToken` 方法名，并复核了产物 dex 中的 JNI 符号\n- 同时把本地模型索引改为原子写、修复 JNI 释放竞态等稳定性问题（详见 v2.1 说明）\n\n> ⚠️ **v2.1 的包不可用**（同样报该错误），请使用本版本。v2.1.1 与该 tag 之前的 v2.1 功能一致，仅修复混淆回归。\n\n## 安装\n\n正式签名（与仓库 `dist/` 内容一致），可直接覆盖安装 v1.0 / v1.1 / v2.0 / v2.1，无需卸载。\n要求：Android 7.0 (API 24) 及以上。",
+          "downloads": 1,
+          "name": "v2.1.1 — 修复 R8 混淆导致模型无法加载",
+          "published_at": "2026-09-27",
+          "sha256": "5dec97665fb8753a08b04f577195813df6905aef6b5397b105244fac99bdfd13",
+          "size": 11588935,
+          "tag": "v2.1.1",
+          "url": "https://github.com/ice-wocker/ModelScopeBrowser/releases/download/v2.1.1/ModelScope-Models-2.1.1.apk",
+          "version_code": null
+        },
+        {
+          "asset": "ModelScope-Models-2.1.apk",
+          "body": "## 主要变化\n\n**对话体验**\n\n- 对话历史持久化：每个模型可保存多个会话（自动落盘，退出不丢），支持「历史会话」切换与「新对话」\n- 长按气泡：复制 / 重新生成 / 编辑并重发 / 删除本条；新增「导出对话」（系统分享）\n- 状态条实时显示上下文用量；点停止后立即提示「正在停止…」\n\n**下载可靠性**\n\n- 断点续传（带 `Range` 请求，服务端不支持时自动从头下）\n- 完整性校验：字节数 + GGUF 魔数，挡掉错误页/半截文件\n- 前台服务 + 进度通知；任务落盘，进程被杀后再进入应用自动接着下\n- 取消即时生效（主动断开连接）\n\n**稳定性**\n\n- 修复 JNI `nativeCancel` / `nativeFree` 的 use-after-free 隐患（存活会话表 + 统一加锁）\n- 模型索引改为「临时文件 + 原子改名」，避免半截索引导致本地模型全部消失\n- 各页面补齐 Handler 清理与生命周期守卫；本地模型库磁盘 IO 移出主线程\n- 模型列表改用 DiffUtil；详情页失败可「点按重试」\n\n**工程化**\n\n- 17 个单元测试、Lint 改为严格模式、CI 增加测试与 Lint\n- 依赖改用 Version Catalog（core 1.15 / material 1.13 / recyclerview 1.4）\n- release 开启 R8 混淆 + 资源压缩：安装包 20.6 MB → 11.6 MB\n- 引入 Gradle Wrapper 8.14.5\n\n## 安装\n\n本包为正式签名（与仓库 dist/ 内容一致），可直接覆盖安装 v1.0 / v1.1 / v2.0，无需卸载。\n\n要求：Android 7.0 (API 24) 及以上，建议 arm64 机型 + 至少 4 GB 内存。",
+          "downloads": 2,
+          "name": "v2.1 — 对话历史 / 下载可靠性 / 工程化",
+          "published_at": "2026-09-27",
+          "sha256": "ed7da9e758dc12d1a6cc2be89a95397868d10ed74744c79f5782df22a5e97be2",
+          "size": 11588931,
+          "tag": "v2.1",
+          "url": "https://github.com/ice-wocker/ModelScopeBrowser/releases/download/v2.1/ModelScope-Models-2.1.apk",
+          "version_code": null
+        },
+        {
+          "asset": "ModelScope-Models-2.0.apk",
+          "body": "**Full Changelog**: https://github.com/ice-wocker/ModelScopeBrowser/compare/v1.2...v2.0",
+          "downloads": 5,
+          "name": "v2.0",
+          "published_at": "2026-09-27",
+          "sha256": "2b4eff1335c7a1c1c801287131da6c8d8b787257c94016a30b1e08366df6fc4c",
+          "size": 14409164,
+          "tag": "v2.0",
+          "url": "https://github.com/ice-wocker/ModelScopeBrowser/releases/download/v2.0/ModelScope-Models-2.0.apk",
+          "version_code": null
+        },
+        {
+          "asset": "app-release.apk",
+          "body": "## 修复「404 page not found」\n\nv1.0/v1.1 的模型列表一直加载失败（404 page not found），根因是请求方式与参数用错了。\n\n抓取魔搭网页自身请求后确认的正确用法：\n\n| 项 | v1.1（错误） | v1.2（正确） |\n|---|---|---|\n| HTTP 方法 | POST / GET | **PUT** |\n| 筛选参数名 | `SingleCriterion` | **`Criterion`** |\n| 筛选维度 | 任务类型 | 许可证 / 框架库 / 标签 / 语言 / 模型结构 / 领域 |\n\n实测：同路径 `POST`/`GET` → 404，`PUT` → 200；`Name=qwen` → 总数 26291；\n`SortBy=StarsCount` 排序生效；`Criterion` 按 apache-2.0 筛选 → 48472，与接口聚合计数一致。\n\n## 其他\n- 「任务筛选」替换为真实生效的维度筛选，二级弹窗展示可选值与模型数量\n- 模型总数校正为约 25.9 万\n- 移除已确认无效的任务筛选代码\n\n## 安装\n下载下方 APK，Android 7.0+ 直接安装。已升级过 v1.0/v1.1 的可直接覆盖安装（同一签名）。\n\n**Full Changelog**: https://github.com/ice-wocker/ModelScopeBrowser/compare/v1.1...v1.2",
+          "downloads": 2,
+          "name": "v1.2 — 修复列表 404（PUT + Criterion）",
+          "published_at": "2026-09-26",
+          "sha256": "d4c29f4b2a99e9e99b1860e8588f9cdf343520e960c62dbb9a7a4b0ae1b06b92",
+          "size": 4706697,
+          "tag": "v1.2",
+          "url": "https://github.com/ice-wocker/ModelScopeBrowser/releases/download/v1.2/app-release.apk",
+          "version_code": null
+        },
+        {
+          "asset": "ModelScope-Models-1.1.apk",
+          "body": "## 升级\n- 工具链：AGP 8.7.3 → 8.13.2，Gradle 8.14.5，JDK 17\n- 系统版本：compileSdk/targetSdk 34 → 36（Android 16）\n- 依赖：引入 AndroidX + Material 3 + Markwon（ListView → RecyclerView + SwipeRefreshLayout）\n- 主题：Material 3 DayNight，自动适配暗色模式\n- 新能力：排序（最多下载/最多收藏/最近更新）、按任务类型筛选、模型文件列表与单文件下载、Markdown 简介渲染\n- 发布：正式 release keystore 签名 + GitHub Actions 自动构建与 Tag 自动发布\n\n## 修复\n1. 双重标题栏（系统 ActionBar 与自定义标题栏重复）\n2. 首页聚合兜底导致无限分页并必然报错\n3. 搜索竞态：旧请求响应覆盖新结果\n4. 翻页跳页：滚动回调先自增页码导致漏页\n5. targetSdk 35+ 强制 edge-to-edge 导致内容被状态栏遮挡\n6. 排序/筛选不被服务端接受时静默无效；错误态缺少重试入口\n\n## 安装\n下载下方 APK，Android 7.0+ 直接安装（需允许未知来源）。",
+          "downloads": 2,
+          "name": "v1.1 — 工具链升级 + 6 个 bug 修复",
+          "published_at": "2026-09-26",
+          "sha256": "2b342ba9a2b45303f401ce753ed8b5168c46537e2f3e890d7a71850874068a85",
+          "size": 4705733,
+          "tag": "v1.1",
+          "url": "https://github.com/ice-wocker/ModelScopeBrowser/releases/download/v1.1/ModelScope-Models-1.1.apk",
+          "version_code": null
+        },
+        {
+          "asset": "ModelScope-Models.apk",
+          "body": "魔搭模型库 Android App 首个版本。\n\n- 分页浏览 + 关键字搜索 ModelScope 全部模型\n- 详情页（任务/下载/收藏/许可/更新时间和简介）\n- 网页模式兜底\n- 纯 Java，零第三方依赖；minSdk 24 / targetSdk 34\n\n安装：下载下方 APK，Android 7.0+ 可直接安装（需允许未知来源）。",
+          "downloads": 2,
+          "name": "v1.0 — 首个可用版本",
+          "published_at": "2026-09-26",
+          "sha256": "20a7329f54a50378260ea8cd9e34fcbc34c76e37df31efd95305ac961577d069",
+          "size": 47573,
+          "tag": "v1.0",
+          "url": "https://github.com/ice-wocker/ModelScopeBrowser/releases/download/v1.0/ModelScope-Models.apk",
+          "version_code": null
+        }
+      ],
+      "name": "v2.7.0",
+      "published_at": "2026-11-01",
+      "sha256": "c302a0ff3b841f93c4c163476d8da5ccf84deebb72bbfacc7c90ad8240a852bd",
+      "size": 8422081,
+      "tag": "v2.7.0",
+      "url": "https://github.com/ice-wocker/ModelScopeBrowser/releases/download/v2.7.0/ModelScope-Models-2.7.0.apk",
+      "version_code": null
+    },
+    "MusicFusion": {
+      "asset": "musicfusion.apk",
+      "body": "**修复死链**：README 此前写着 `releases/download/v13/musicfusion.apk`，但本仓库一个 Release 都没有，该链接实测 404 —— 用户看完 README 想下载，点开是挂的。\n\n本次同时：\n- `build.sh` 泛化：不再硬编码 Termux 路径，JDK 17 + Android SDK 即可构建\n- 重写 CI：去掉会失败的 `android-actions/setup-android@v3`，改用自己维护的构建脚本\n- 构建产物移出 git（此前 `musicfusion.apk` / `.dex` / `.idsig` 被跟踪）\n\n**构建环境**：JDK 17 · build-tools 35.0.0 · platform 35\n**签名**：仓库内 `debug.keystore`（演示用）\n**校验**：`apksigner verify` 通过\n\n**Full Changelog**: https://github.com/ice-wocker/MusicFusion/commits/v13",
+      "downloads": 86,
+      "history": [
+        {
+          "asset": "musicfusion.apk",
+          "body": "**修复死链**：README 此前写着 `releases/download/v13/musicfusion.apk`，但本仓库一个 Release 都没有，该链接实测 404 —— 用户看完 README 想下载，点开是挂的。\n\n本次同时：\n- `build.sh` 泛化：不再硬编码 Termux 路径，JDK 17 + Android SDK 即可构建\n- 重写 CI：去掉会失败的 `android-actions/setup-android@v3`，改用自己维护的构建脚本\n- 构建产物移出 git（此前 `musicfusion.apk` / `.dex` / `.idsig` 被跟踪）\n\n**构建环境**：JDK 17 · build-tools 35.0.0 · platform 35\n**签名**：仓库内 `debug.keystore`（演示用）\n**校验**：`apksigner verify` 通过\n\n**Full Changelog**: https://github.com/ice-wocker/MusicFusion/commits/v13",
+          "downloads": 86,
+          "name": "v13.0.0 — 聚合音乐播放器（首个 Release）",
+          "published_at": "2026-09-29",
+          "sha256": "122512ad15ffafc50d2962b0b2e95028f66b547c93fc5396e2199e2f47cf3fd8",
+          "size": 288715,
+          "tag": "v13",
+          "url": "https://github.com/ice-wocker/MusicFusion/releases/download/v13/musicfusion.apk",
+          "version_code": null
+        }
+      ],
+      "name": "v13.0.0 — 聚合音乐播放器（首个 Release）",
+      "published_at": "2026-09-29",
+      "sha256": "122512ad15ffafc50d2962b0b2e95028f66b547c93fc5396e2199e2f47cf3fd8",
+      "size": 288715,
+      "tag": "v13",
+      "url": "https://github.com/ice-wocker/MusicFusion/releases/download/v13/musicfusion.apk",
+      "version_code": null
+    },
+    "MusicFusionAI": {
+      "asset": "musicfusion-ai.apk",
+      "body": "**这个仓库此前从未产出过可安装的 APK**：`build.sh` 只跑到 `javac`，注释里写着「下一步用 d8 打包」，README 却把它描述为可用模块。\n\n本次补齐完整打包链：aapt2 → 链接资源 → javac → d8 → zipalign → apksigner。\n\n同时删除手写的 `R.java`（无 aapt 时的占位桩，源码并未引用，加了 aapt2 后与生成的 R 类重名冲突）。\n\n> ⚠️ **注意**：本包无 launcher activity（只声明 Android Auto 服务与 Wear OS 磁贴），\n> 装到手机上不会出现在桌面，需由宿主应用 MusicFusion 拉起。\n> 这里的 Release 主要用于验证「代码可编译、资源可链接、包可安装」。\n\n**构建环境**：JDK 17 · build-tools 35.0.0 · platform 35\n**校验**：`apksigner verify` 通过\n\n**Full Changelog**: https://github.com/ice-wocker/MusicFusionAI/commits/v14.0.0",
+      "downloads": 88,
+      "history": [
+        {
+          "asset": "musicfusion-ai.apk",
+          "body": "**这个仓库此前从未产出过可安装的 APK**：`build.sh` 只跑到 `javac`，注释里写着「下一步用 d8 打包」，README 却把它描述为可用模块。\n\n本次补齐完整打包链：aapt2 → 链接资源 → javac → d8 → zipalign → apksigner。\n\n同时删除手写的 `R.java`（无 aapt 时的占位桩，源码并未引用，加了 aapt2 后与生成的 R 类重名冲突）。\n\n> ⚠️ **注意**：本包无 launcher activity（只声明 Android Auto 服务与 Wear OS 磁贴），\n> 装到手机上不会出现在桌面，需由宿主应用 MusicFusion 拉起。\n> 这里的 Release 主要用于验证「代码可编译、资源可链接、包可安装」。\n\n**构建环境**：JDK 17 · build-tools 35.0.0 · platform 35\n**校验**：`apksigner verify` 通过\n\n**Full Changelog**: https://github.com/ice-wocker/MusicFusionAI/commits/v14.0.0",
+          "downloads": 88,
+          "name": "v14.0.0 — Add-on 模块（首个可安装的 APK）",
+          "published_at": "2026-09-29",
+          "sha256": "3d05a2acc1ffb4833a1b7ac38ff3d839b8d752098988ee11bd31520d75697057",
+          "size": 41387,
+          "tag": "v14.0.0",
+          "url": "https://github.com/ice-wocker/MusicFusionAI/releases/download/v14.0.0/musicfusion-ai.apk",
+          "version_code": null
+        }
+      ],
+      "name": "v14.0.0 — Add-on 模块（首个可安装的 APK）",
+      "published_at": "2026-09-29",
+      "sha256": "3d05a2acc1ffb4833a1b7ac38ff3d839b8d752098988ee11bd31520d75697057",
+      "size": 41387,
+      "tag": "v14.0.0",
+      "url": "https://github.com/ice-wocker/MusicFusionAI/releases/download/v14.0.0/musicfusion-ai.apk",
+      "version_code": null
+    },
+    "iceBrowser": {
+      "asset": "icebrowser.apk",
+      "body": "首个自动构建并发布的版本。\n\n此前 README 主打体积、仓库里却没有可下载的包，用户只能自己编译——而 build.sh 硬编码了 Termux 路径，普通环境跑不起来。\n\n本次改动：\n- `build.sh` 泛化：工具全部取自 `ANDROID_HOME`，JDK 17 + Android SDK 即可构建（不再依赖 Termux / ECJ / dalvikvm）\n- 新增 CI：每次推送构建并验签，打 `v*` tag 自动发布\n- 修正体积声明：README 此前写 81 KB / 110 KB 两个互相打架的数字，实测为 164 KB\n\n**构建环境**：JDK 17 · build-tools 35.0.0 · platform 35\n**校验**：`apksigner verify` 通过\n\n## What's Changed\n* feat: iceBrowser 极全面升级（主题/稳定性/搜索/工程化） by @ice-wocker in https://github.com/ice-wocker/iceBrowser/pull/1\n\n## New Contributors\n* @ice-wocker made their first contribution in https://github.com/ice-wocker/iceBrowser/pull/1\n\n**Full Changelog**: https://github.com/ice-wocker/iceBrowser/commits/v5.0.1",
+      "downloads": 124,
+      "history": [
+        {
+          "asset": "icebrowser.apk",
+          "body": "首个自动构建并发布的版本。\n\n此前 README 主打体积、仓库里却没有可下载的包，用户只能自己编译——而 build.sh 硬编码了 Termux 路径，普通环境跑不起来。\n\n本次改动：\n- `build.sh` 泛化：工具全部取自 `ANDROID_HOME`，JDK 17 + Android SDK 即可构建（不再依赖 Termux / ECJ / dalvikvm）\n- 新增 CI：每次推送构建并验签，打 `v*` tag 自动发布\n- 修正体积声明：README 此前写 81 KB / 110 KB 两个互相打架的数字，实测为 164 KB\n\n**构建环境**：JDK 17 · build-tools 35.0.0 · platform 35\n**校验**：`apksigner verify` 通过\n\n## What's Changed\n* feat: iceBrowser 极全面升级（主题/稳定性/搜索/工程化） by @ice-wocker in https://github.com/ice-wocker/iceBrowser/pull/1\n\n## New Contributors\n* @ice-wocker made their first contribution in https://github.com/ice-wocker/iceBrowser/pull/1\n\n**Full Changelog**: https://github.com/ice-wocker/iceBrowser/commits/v5.0.1",
+          "downloads": 124,
+          "name": "v5.0.1 — 164 KB 的浏览器",
+          "published_at": "2026-09-29",
+          "sha256": "f0ed7b80f829a8d9dd5b89f6551446ff93a96ecfcab3bf02cc197eeac5fe8c5a",
+          "size": 168531,
+          "tag": "v5.0.1",
+          "url": "https://github.com/ice-wocker/iceBrowser/releases/download/v5.0.1/icebrowser.apk",
+          "version_code": null
+        }
+      ],
+      "name": "v5.0.1 — 164 KB 的浏览器",
+      "published_at": "2026-09-29",
+      "sha256": "f0ed7b80f829a8d9dd5b89f6551446ff93a96ecfcab3bf02cc197eeac5fe8c5a",
+      "size": 168531,
+      "tag": "v5.0.1",
+      "url": "https://github.com/ice-wocker/iceBrowser/releases/download/v5.0.1/icebrowser.apk",
+      "version_code": null
+    },
+    "iceReading": {
+      "asset": "icereading.apk",
+      "body": "首个 Release。此前 README 主打「97 KB」，但仓库里没有可下载的包 —— 现在有了。\n\n- `build.sh` 泛化：工具取自 `ANDROID_HOME`，不再依赖 Termux\n- 修复 `discover.xml`（OPDS 发现文档）未被纳入构建的问题\n- 清出被 git 跟踪的 `.idsig` 签名附属文件\n\n**构建环境**：JDK 17 · build-tools 35.0.0 · platform 35\n**校验**：`apksigner verify` 通过\n\n**Full Changelog**: https://github.com/ice-wocker/iceReading/commits/v1.0.0",
+      "downloads": 78,
+      "history": [
+        {
+          "asset": "icereading.apk",
+          "body": "首个 Release。此前 README 主打「97 KB」，但仓库里没有可下载的包 —— 现在有了。\n\n- `build.sh` 泛化：工具取自 `ANDROID_HOME`，不再依赖 Termux\n- 修复 `discover.xml`（OPDS 发现文档）未被纳入构建的问题\n- 清出被 git 跟踪的 `.idsig` 签名附属文件\n\n**构建环境**：JDK 17 · build-tools 35.0.0 · platform 35\n**校验**：`apksigner verify` 通过\n\n**Full Changelog**: https://github.com/ice-wocker/iceReading/commits/v1.0.0",
+          "downloads": 78,
+          "name": "v1.0.0 — 97 KB 的本地 EPUB 阅读器",
+          "published_at": "2026-09-29",
+          "sha256": "4f73e2e02238f658a79d43f0171302981b93c4f2fe8b90628b0ea8d9a4a153de",
+          "size": 100085,
+          "tag": "v1.0.0",
+          "url": "https://github.com/ice-wocker/iceReading/releases/download/v1.0.0/icereading.apk",
+          "version_code": null
+        }
+      ],
+      "name": "v1.0.0 — 97 KB 的本地 EPUB 阅读器",
+      "published_at": "2026-09-29",
+      "sha256": "4f73e2e02238f658a79d43f0171302981b93c4f2fe8b90628b0ea8d9a4a153de",
+      "size": 100085,
+      "tag": "v1.0.0",
+      "url": "https://github.com/ice-wocker/iceReading/releases/download/v1.0.0/icereading.apk",
+      "version_code": null
+    },
+    "iceScan": {
+      "asset": "iceScan-0.1.0.apk",
+      "body": "**Full Changelog**: https://github.com/ice-wocker/iceScan/commits/v0.1.0",
+      "downloads": 81,
+      "history": [
+        {
+          "asset": "iceScan-0.1.0.apk",
+          "body": "**Full Changelog**: https://github.com/ice-wocker/iceScan/commits/v0.1.0",
+          "downloads": 81,
+          "name": "v0.1.0",
+          "published_at": "2026-09-28",
+          "sha256": "8e0aa2b651894454727e1d79329bfb8868c176b1c81e0a69879ce616dff6f628",
+          "size": 71620,
+          "tag": "v0.1.0",
+          "url": "https://github.com/ice-wocker/iceScan/releases/download/v0.1.0/iceScan-0.1.0.apk",
+          "version_code": null
+        }
+      ],
+      "name": "v0.1.0",
+      "published_at": "2026-09-28",
+      "sha256": "8e0aa2b651894454727e1d79329bfb8868c176b1c81e0a69879ce616dff6f628",
+      "size": 71620,
+      "tag": "v0.1.0",
+      "url": "https://github.com/ice-wocker/iceScan/releases/download/v0.1.0/iceScan-0.1.0.apk",
+      "version_code": null
+    },
+    "iceScribe": {
+      "asset": "iceScribe-0.1.1.apk",
+      "body": "**Full Changelog**: https://github.com/ice-wocker/iceScribe/compare/v0.1.0...v0.1.1",
+      "downloads": 121,
+      "history": [
+        {
+          "asset": "iceScribe-0.1.1.apk",
+          "body": "**Full Changelog**: https://github.com/ice-wocker/iceScribe/compare/v0.1.0...v0.1.1",
+          "downloads": 121,
+          "name": "v0.1.1",
+          "published_at": "2026-09-27",
+          "sha256": "0db1ec62076a2bdc6eb0c484fb17d04cc506cca33cae2b0f0c1cd1d0bdc8c962",
+          "size": 61130620,
+          "tag": "v0.1.1",
+          "url": "https://github.com/ice-wocker/iceScribe/releases/download/v0.1.1/iceScribe-0.1.1.apk",
+          "version_code": null
+        },
+        {
+          "asset": "iceScribe-0.1.0.apk",
+          "body": "**Full Changelog**: https://github.com/ice-wocker/iceScribe/commits/v0.1.0",
+          "downloads": 1,
+          "name": "v0.1.0",
+          "published_at": "2026-09-27",
+          "sha256": "ed84a6a0a529edb3edd7df81df9c7320d0cdb9d6b7c03b4b88021832d6705ef4",
+          "size": 1421918,
+          "tag": "v0.1.0",
+          "url": "https://github.com/ice-wocker/iceScribe/releases/download/v0.1.0/iceScribe-0.1.0.apk",
+          "version_code": null
+        }
+      ],
+      "name": "v0.1.1",
+      "published_at": "2026-09-27",
+      "sha256": "0db1ec62076a2bdc6eb0c484fb17d04cc506cca33cae2b0f0c1cd1d0bdc8c962",
+      "size": 61130620,
+      "tag": "v0.1.1",
+      "url": "https://github.com/ice-wocker/iceScribe/releases/download/v0.1.1/iceScribe-0.1.1.apk",
+      "version_code": null
+    }
+  }
+}

@@ -69,6 +69,13 @@ public class LlamaEngine {
         void onLoaded(boolean ok, String message);
     }
 
+    /**
+     * 空回调：调用方不关心结果时用它，避免回调路径里到处判空。
+     * load() 的每个分支都会回调，少一个判空就是一次崩溃。
+     */
+    private static final LoadListener NO_LOAD_LISTENER = (ok, message) -> {
+    };
+
     public interface StreamListener {
         void onToken(String piece);
 
@@ -237,7 +244,8 @@ public class LlamaEngine {
      * 可能连着触发两次 load，两个都读到 false 就会各自往单线程里排一个任务，
      * 结果是后一个任务把前一个刚建好的会话立刻 closeHandle 掉，界面却显示「已加载」。</p>
      */
-    public synchronized void load(LocalModel model, int nCtx, String backendDir, LoadListener listener) {
+    public synchronized void load(LocalModel model, int nCtx, String backendDir, LoadListener maybeNull) {
+        final LoadListener listener = maybeNull == null ? NO_LOAD_LISTENER : maybeNull;
         if (loading) {
             // 直接返回会让调用方一直停在“加载中”，这里显式告知，便于界面重试
             if (listener != null) {

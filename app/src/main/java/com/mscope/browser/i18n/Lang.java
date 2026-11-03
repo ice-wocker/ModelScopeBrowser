@@ -1,6 +1,7 @@
 package com.mscope.browser.i18n;
 
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 界面/文案语言。
@@ -17,27 +18,34 @@ import java.util.Locale;
  */
 public final class Lang {
 
-    private static volatile Boolean chinese;
+    /** true = 显式指定了语言，此时以 {@link #chineseValue} 为准。 */
+    private static final AtomicBoolean EXPLICIT = new AtomicBoolean(false);
+    private static volatile boolean chineseValue;
 
     private Lang() {
     }
 
     /** 跟随系统 locale（例：切回「跟随系统」时）。 */
     public static void followSystem() {
-        chinese = null;
+        EXPLICIT.set(false);
     }
 
     /** 显式指定，覆盖系统 locale。 */
     public static void setChinese(boolean zh) {
-        chinese = zh;
+        chineseValue = zh;
+        EXPLICIT.set(true);
     }
 
-    /** 当前是否是中文语境。未显式指定时按系统 locale 判断。 */
+    /**
+     * 当前是否是中文语境。未显式指定时按系统 locale 判断。
+     *
+     * <p>刻意用「标志位 + boolean」而不是可空的 Boolean：两个字段之间没有原子性要求
+     * （最坏情况是切换的一瞬间读到旧语言），但能省掉装箱与拆箱 —— 这个方法在
+     * 界面滚动、工具执行、提示词拼接里每秒被调用成千上万次。</p>
+     */
     public static boolean zh() {
-        Boolean v = chinese;
-        if (v != null) return v;
-        Locale l = Locale.getDefault();
-        return "zh".equals(l.getLanguage());
+        if (EXPLICIT.get()) return chineseValue;
+        return "zh".equals(Locale.getDefault().getLanguage());
     }
 
     /** 从两份文案里选一份。 */

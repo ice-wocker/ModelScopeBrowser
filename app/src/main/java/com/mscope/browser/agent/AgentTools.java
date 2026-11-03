@@ -469,10 +469,17 @@ public class AgentTools {
         return "*/*";
     }
 
+    /**
+     * 截断给模型看的结果。
+     *
+     * <p>必须按码点截断：直接 {@code substring(max)} 会把 emoji / 生僻字切成半个
+     * surrogate pair，拼进 prompt 后就是乱码甚至让部分模型的分词器直接报错。</p>
+     */
     private static String truncate(String s, int max) {
         if (s == null) return "";
         if (s.length() <= max) return s;
-        return s.substring(0, max) + (Lang.zh() ? "\n…（内容过长，已截断）" : "\n… (truncated: too long)");
+        return TextKit.trimUtf8(s, max)
+                + (Lang.zh() ? "\n…（内容过长，已截断）" : "\n… (truncated: too long)");
     }
 
     private static String arg(ToolCall c, String... names) {

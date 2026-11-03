@@ -355,7 +355,7 @@ Without it, release builds fall back to debug signing so any environment can sti
 
 [`.github/workflows/android.yml`](.github/workflows/android.yml) has two jobs:
 
-1. **verify** — unit tests (99) and Lint, uploading both reports;
+1. **verify** — unit tests (110) and Lint, uploading both reports;
 2. **build** (`needs: verify`) — install SDK, cache the native build, configure signing,
    `assembleDebug` + `assembleRelease`, **verify artifacts** (`apksigner` prints the certificate, `aapt2` prints
    ABI and version; tags refuse debug signing), upload the `apk` artifact, and on `v*` tags create a Release with

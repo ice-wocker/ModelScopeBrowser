@@ -304,7 +304,7 @@ public class DetailActivity extends BaseActivity implements DownloadCenter.Liste
     @Override
     public void onProgress(LocalModel model, long done, long total) {
         if (!alive) return;
-        notifyFile(model);
+        notifyFile(model);      // 内部按下标 notifyItemChanged，不整表重绑
     }
 
     @Override

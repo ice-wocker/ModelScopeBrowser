@@ -1,0 +1,132 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    # 外链会随时间腐烂（Release 被删、仓库改名），即使仓库没动也定期体检
+    - cron: '0 4 * * 1'
+
+jobs:
+  build:
+    name: 构建站点
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Build
+        run: python3 scripts/build_site.py
+      - name: Assert output
+        run: |
+          # 产物清单写全：少一个文件在浏览器里就是 404，而构建本身是绿的。
+          for f in index.html store.html tags.html changes.html search.json CNAME 404.html \
+                   sitemap.xml robots.txt feed.xml icon.svg style.css update.json; do
+            test -f "site/$f" || { echo "缺少产物 $f"; exit 1; }
+          done
+          pages=$(find site -name '*.html' | wc -l)
+          test "$pages" -ge 15
+          echo "页面数 $pages"
+          # 商店页必须真的有可下载的应用，不能是空壳
+          n=$(grep -o 'data-apk="' site/store.html | wc -l)
+          test "$n" -ge 8
+          echo "商店页可下载 $n 个"
+          # sitemap 必须收录**所有可能被索引的页面**：项目页 + 首页 + 商店 + 标签。
+          # 不能拿 `页面数` 直接比——404.html 是 noindex 页面，本就不该进 sitemap，
+          # 差这一个才是对的。上一版这条断言写成 `sm >= pages`，于是它必然失败，
+          # 而且失败信息只会说「Process completed with exit code 1」，看不出是这条。
+          sm=$(grep -c '<url>' site/sitemap.xml)
+          want=$((pages))          # 页面数（含 404）
+          test "$sm" -ge $((want - 1)) || { echo "sitemap 只有 $sm 条，页面 $want 张（404 不计入）"; exit 1; }
+          grep -q '404.html' site/sitemap.xml && { echo "404.html 不该进 sitemap"; exit 1; }
+          echo "sitemap 条目 $sm（页面 $want，404 不计入）"
+      - name: 构建应可重复（同一份输入产出同一份产物）
+        run: |
+          # 纯静态站的「可重复构建」是它自己的承诺之一。
+          # 做法：再构建一次，比对两次产物的哈希——如果构建里混进了
+          # 时间戳/随机数，这里立刻红。
+          h1=$(find site -type f | sort | xargs sha256sum | sha256sum)
+          python3 scripts/build_site.py > /dev/null
+          h2=$(find site -type f | sort | xargs sha256sum | sha256sum)
+          echo "第一次 $h1"
+          echo "第二次 $h2"
+          test "$h1" = "$h2" || { echo "构建不可重复：两次产物不一致"; exit 1; }
+
+  check:
+    name: 结构与站内链接检查
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: python3 scripts/build_site.py
+      # PR 上跳过外链（GitHub 侧有速率限制，反馈要快）；定时任务才全量查
+      - name: Check structure
+        if: github.event_name != 'schedule'
+        run: python3 scripts/check_site.py --skip-links
+      - name: Check structure + links (scheduled)
+        if: github.event_name == 'schedule'
+        run: python3 scripts/check_site.py
+
+  releases:
+    name: 校验 Release 元数据
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Build
+        run: python3 scripts/build_site.py
+      # 商店页的版本号/体积来自 data/releases.json。它是个快照，
+      # 仓库发了新版但没人重新生成，商店就会一直显示旧版本——而且没人会发现。
+      # 这里联网对比一次，把「快照过期」变成 CI 红。
+      - name: releases.json 是否与线上 Release 一致
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/fetch_releases.py --check
+      # update.json 里的 sha256 会被客户端拿去验包，它错了就是「装不上」。
+      # 这条要真下载文件，所以只在每周定时跑（会下 1~2 个最小的包）。
+      # 平常不跑的理由也很实在：为了填一个字段每小时把 60+ MB 全下一遍，不值当。
+      - name: 校验声明里的 sha256 与真实文件一致（每周）
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/fetch_releases.py --verify-digest
+
+  # ---------------------------------------------------------------- 守卫自证
+  # 一个永远不会红的检查，比没有检查更危险：它会让人以为守住了。
+  # 这个 job 把「注入缺陷 → 自检必须变红」这条链跑成 CI 的一部分，
+  # 所以每条守卫都得先证明自己抓得住东西。
+  guards:
+    name: 守卫自证（注入缺陷，自检必须变红）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: python3 scripts/build_site.py
+      - name: Mutation test
+        run: python3 scripts/mutate_test.py
+
+  pages-config:
+    name: 校验 Pages 用的 CNAME
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: python3 scripts/build_site.py
+      # 域名写错会导致 GitHub Pages 掉回 *.github.io，且没有任何报错。
+      # 这里把「域名只有一处真相源」钉住。
+      - name: Domain appears exactly once as source of truth
+        run: |
+          n=$(grep -c 'icesuite.eu.org' data/projects.py)
+          test "$n" -eq 1
+          grep -q 'icesuite.eu.org' site/CNAME

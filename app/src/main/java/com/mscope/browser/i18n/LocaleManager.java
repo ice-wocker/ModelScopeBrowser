@@ -4,7 +4,6 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
-import android.os.Build;
 import android.os.LocaleList;
 
 import java.util.Locale;
@@ -74,11 +73,8 @@ public final class LocaleManager {
         Locale.setDefault(locale);
 
         Configuration cfg = new Configuration(base.getResources().getConfiguration());
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            cfg.setLocales(new LocaleList(locale));
-        } else {
-            cfg.locale = locale;
-        }
+        // minSdk 24 = Android 7.0，LocaleList 是 7.0 起就有的 API，不需要再判断版本
+        cfg.setLocales(new LocaleList(locale));
         return base.createConfigurationContext(cfg);
     }
 

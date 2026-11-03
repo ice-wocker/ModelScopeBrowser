@@ -227,7 +227,7 @@ AgentTools.describe(...)  // 追加一行
 **Q25. 单测怎么跑得这么快？**
 
 因为 `core/` 不依赖 Android。`./gradlew testDebugUnitTest` 只编译纯 Java 部分，
-99 个用例一秒内跑完（不含 Gradle 启动时间）。
+110 个用例一秒内跑完（不含 Gradle 启动时间）。
 
 这也是「把规则下沉到 core」的额外好处：测试反馈快，人才愿意写测试。
 

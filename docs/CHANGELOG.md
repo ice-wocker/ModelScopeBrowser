@@ -98,6 +98,41 @@ DSML 那些标签结尾是**单个 `>`**，不是漏写 —— 官方模板就�
 
 ---
 
+---
+
+## v2.7.1 — 五条分支收口，版本号只有一处真源
+
+这一版没有新写什么，做的是合并与对账：`fix/v2.6.1`、`fix/version-consistency`、
+`feat/agent-toolkit-57`、`feat/site-autoupdate`、`auto/profile-readme-1777` 五条分支各自独立开发，
+谁也没进过 `main`；版本号有的写 2.6.1、有的写 2.7.0，`app/build.gradle` 里仍是 2.6.1。
+现在全部合到一处，版本号只有一处真源。
+
+### 合并进来的
+
+- **智能体工具从 8 个扩到 57 个**（`feat/agent-toolkit-57`）：新增 `agent/ToolRegistry` 作为工具说明、
+  工具名白名单、危险动作判定的唯一真源，加工具不必再改三处。文件、文本、计算与时间、设备、
+  联网、记忆与待办、外部模型七组工具，按组开关；新增 `PathGuard` 作为 shell 执行前的两道闸，
+  `SecureRedactor` 过滤密钥；纯逻辑件 `DigestKit` / `TimeKit` / `JsonAccess` / `SseParser` / `Bm25`
+  / `DiffKit` / `DocConverter` 都能在 JVM 上直接单测。
+- **修掉「文档说到了、代码没做到」的一批问题**（`fix/v2.6.1`）：短读导致对话历史整份丢失、
+  会话文件没有写入上限、取消下载等于放弃全部进度、断点续传可能拼出畸形文件、
+  `backup_rules.xml` 规则一直空转、Android 14 前台服务缺类型、未知长度下载没有兜底、
+  `LlamaEngine.load()` 回调为空时 NPE、原生层 `g_last_error` 数据竞争等。
+- **站点自动更新链路**（`feat/site-autoupdate`）：`site-src/` 下的构建与校验脚本、
+  `update.json` 与过期检测、首页筛选与更新记录页。
+- **GitHub 个人主页 README**（`auto/profile-readme-1777`）。
+
+### 版本号落地
+
+- `app/build.gradle` 的 `versionCode 15` / `versionName "2.7.0"` 与 README、文档、Release 产物
+  名对齐。此前 Gradle 里还是 `2.6.1`，装上去系统看到的是 2.6.1，而 Release 页写的是 2.7.0。
+- 合并冲突按「后续版本优先」处理：README 与文档里的版本行取 2.7.0，`CHANGELOG` 两节都保留。
+
+### 验证
+
+- `./gradlew testDebugUnitTest`：110 个用例全绿。
+- `./gradlew assembleRelease`：arm64-v8a（多档指令集）+ armeabi-v7a 双 ABI 出包。
+
 ## v2.7.0 — 57 个工具，工具说明 / 白名单 / 风险判定合成一张表
 
 ### 智能体（本次主体）
@@ -166,6 +201,62 @@ values / values-zh →  各 247 条 key，逐条对齐
 - **`llm_ask` 没有对着真实服务商跑过**。请求体与响应解析有单测（含 SSE 兜底），
   但「某家服务商的鉴权头怎么写」这种事只能实测。
 - **没有 GPU 后端**（Vulkan / OpenCL），纯 CPU 推理仍是天花板。
+## v2.6.1 — 把「说到了但没做到」的地方做实
+
+这一版不加功能。逐条对着代码找「文档宣称的行为和实际行为不一致」的地方，能复现的都修了，
+每一条都能指到具体的出错路径。
+
+### 会丢数据 / 会白折腾的
+
+- **对话历史可能整份丢失**：`ChatStore.readAll()` 只调用了一次 `in.read(buf)`。`InputStream#read`
+  只保证「至少读到一个字节」，设备存储紧张时一次短读就让 JSON 从中截断，解析失败后
+  `readAll()` 返回空列表 —— 用户看到的是「聊天记录全没了」，而且下一次 `save()` 会把空列表写回去。
+  模型索引（`index.json`）与待续传记录（`downloads.json`）是同一份写法，一起改成循环读满。
+- **会话体积没有上限**：读取上限是 16 MB，写入却没有任何限制。超过后写出一份「自己都读不回来」的
+  文件，等价于把历史清零。现在写入前按体积淘汰最久未动的会话。
+- **点「取消」等于放弃全部进度**：取消时删除 `.part` 并清掉待续传记录，下次再点又从 0 开始。
+  取消现在只停任务，断点保留，下次接着下；真正要清干净的是「删除」。
+- **断点续传可能拼出畸形文件**：服务端换了同名文件时仍会返回 206，把新一代的尾部拼到旧一代的
+  断点后面。现在解析 `Content-Range`，起始位置与本地区间不一致就丢弃断点整体重下。
+- **自动备份必然失败**：`backup_rules.xml` 只排除了 `external/models`，而模型目录本身就在
+  `getExternalFilesDir()` 下，规则一直是空转；24 MB 的备份配额被几个 GB 的模型撑爆后，
+  连对话历史和语言设置也一起备份不上。现在补上 `root/file` 两个域，并把体积不可控的
+  `workspace/` 一并排除。
+
+### 会崩 / 会卡住的
+
+- **Android 14 上前台服务起不来**：清单里声明了 `foregroundServiceType="dataSync"`，
+  但 `startForeground()` 没有传类型，Android 14 会抛 `MissingForegroundServiceTypeException`，
+  下载退化成普通后台线程，切走就被回收。现在显式传入类型。
+- **未知长度下载不做出错兜底**：`Content-Length` 缺失时开头的空间体检整段跳过，只能等分区写满
+  才报一个看不懂的 `IOException`。现在下载过程中每 5 秒补一次安全水位检查。
+- **`LlamaEngine.load()` 的回调可为 null 但没判空**：任一分支回调都会 NPE，而模型加载失败
+  （比如文件不全）恰恰是这条路径最常走的时候。
+- **原生层 `g_last_error` 跨线程读写**：`nativeInit` 在加载线程写、`nativeLastError` 在界面线程读，
+  是 `std::string` 的数据竞争。现在加锁，并统一走 `setLastError()`。
+
+### 卡顿 / 白耗电的
+
+- **流式输出每块都重绑整条气泡**：引擎已经把 40 ms 内的 token 合并，界面又对每块调
+  `notifyItemChanged`，Markdown 渲染与推理线程抢 CPU，解码速度肉眼可见地掉。重绘改为 80 ms 节流，
+  收尾强制刷一次。
+- **联网工具没有超时上限兜底**：`fetch_url` / `web_search` 跑在智能体线程上，「停止」要到下一次
+  回调才生效；黑洞地址会让线程挂十几秒。超时收紧到连接 8 s / 读 12 s，并按字节限长读取
+  （原来按行计数，一行几 MB 的压缩页照样能吃满内存）。
+- **`Lang.zh()` 每秒被调用上千次且带装箱**：改成标志位 + 原始 boolean。
+- **`Workspace.list()` 用码点排序**：中文文件名按码点排出来是随机顺序，改用 `Collator` 走拼音。
+- **写入 `.nomedia`**：模型目录在外部存储下，系统媒体扫描器会去扫几个 GB 的 `.gguf`。
+
+### 测试
+
+- 新增 `DownloadCenterTest`（4 个）：`Content-Range` 的标准写法、未知总长、大小写与空格、
+  以及几种必须被拒绝的垃圾输入。
+- `CoreKitTest` 补 7 个：UTF-8 安全截断（emoji 边界、上限超过长度时不越界）、
+  存储体检的三类结论（幽灵 / 孤儿 / 空壳）与干净时的空结果、参数收敛（输出上限压到上下文 3/4、
+  贪心采样 top-k 至少为 1）。
+- 单测 99 → **110 个，全绿**；`lintDebug` 0 error；`assembleRelease` 通过（R8 + NDK 交叉编译）。
+
+---
 
 ## v2.6.0 — 中英双语
 

@@ -111,6 +111,46 @@ drift off topic.
 
 ---
 
+---
+
+## v2.7.1 — five branches, one source of version truth
+
+No new features in this release. It is a merge-and-reconcile pass: `fix/v2.6.1`,
+`fix/version-consistency`, `feat/agent-toolkit-57`, `feat/site-autoupdate` and
+`auto/profile-readme-1777` were each developed in isolation and none had reached `main`.
+Version numbers disagreed (2.6.1 in the docs, 2.7.0 on the release page, 2.6.1 in
+`app/build.gradle`). Everything now lands in one place with a single source of truth.
+
+### Merged
+
+- **Agent tools grew from 8 to 57** (`feat/agent-toolkit-57`): `agent/ToolRegistry` is now the
+  single source for tool descriptions, the tool-name allowlist and the dangerous-action check,
+  so adding a tool no longer means editing three lists. Seven groups (files, text, math & time,
+  device, network, memory & todo, external models) can be toggled per group; `PathGuard` gates
+  shell execution and `SecureRedactor` strips secrets. The pure-logic helpers — `DigestKit`,
+  `TimeKit`, `JsonAccess`, `SseParser`, `Bm25`, `DiffKit`, `DocConverter` — are unit-testable on the JVM.
+- **Documented-but-missing behaviour fixed** (`fix/v2.6.1`): chat history wiped by short reads,
+  no write cap on session files, cancel throwing away all download progress, resumable downloads
+  splicing mismatched ranges, `backup_rules.xml` never matching anything, missing foreground
+  service type on Android 14, no fallback for unknown-length downloads, NPE on a null load
+  callback in `LlamaEngine.load()`, and a data race on the native `g_last_error`.
+- **Site auto-update pipeline** (`feat/site-autoupdate`): build and check scripts under `site-src/`,
+  `update.json` plus staleness detection, home-page filters and a release history page.
+- **GitHub profile README** (`auto/profile-readme-1777`).
+
+### Version alignment
+
+- `app/build.gradle` now carries `versionCode 15` / `versionName "2.7.0"`, matching the README,
+  the docs and the release artefact name. Previously the installed app reported 2.6.1 while the
+  release page advertised 2.7.0.
+- Merge conflicts were resolved newest-version-wins: version lines in the READMEs take 2.7.0 and
+  both changelog sections are kept.
+
+### Verification
+
+- `./gradlew testDebugUnitTest`: 110 tests, all green.
+- `./gradlew assembleRelease`: dual-ABI build (arm64-v8a multi-variant, armeabi-v7a).
+
 ## v2.7.0 — 57 tools, and one table behind all of them
 
 ### Agent (the bulk of this release)
@@ -182,6 +222,63 @@ tests asserting Chinese strings must pin the language, or they fail falsely on a
 - **`llm_ask` was never run against a live provider.** Request shape and response parsing are unit-tested,
   but "how exactly this vendor wants its auth header" can only be settled by trying it.
 - **No GPU backend** (Vulkan / OpenCL). Pure CPU inference is still the ceiling.
+## v2.6.1 — making the documented behaviour actually true
+
+No new features. Every item below was found by comparing what the docs claim with what the code does,
+and each one points at a concrete failure path.
+
+### Data loss / wasted work
+
+- **Chat history could vanish entirely**: `ChatStore.readAll()` called `in.read(buf)` exactly once.
+  `InputStream#read` only guarantees a single byte, so a short read under storage pressure truncated
+  the JSON, parsing failed, and `readAll()` returned an empty list — the user sees "all my chats are gone",
+  and the next `save()` persists that empty list. The model index and the pending-download record used
+  the same pattern and are fixed the same way.
+- **No upper bound on the session file**: reads were capped at 16 MB, writes were not. Beyond that the
+  app produced a file it could not read back — equivalent to wiping history. Oldest sessions are now
+  evicted before writing.
+- **Cancel threw away all progress**: cancelling deleted the `.part` file and the resume record, so the
+  next attempt started from zero. Cancel now only stops the task; the breakpoint survives.
+- **Resume could splice two generations of a file**: when the server replaces a file it still answers 206,
+  so the new tail got appended to the old breakpoint. `Content-Range` is now parsed and a mismatched
+  start discards the breakpoint.
+- **Auto Backup could never succeed**: `backup_rules.xml` only excluded `external/models`, but the models
+  live under `getExternalFilesDir()` — the rule never matched. Multi-GB models blew the 24 MB quota, which
+  also meant chats and the language setting were never backed up. Both `root` and `file` domains are now
+  excluded, together with the unbounded `workspace/`.
+
+### Crashes / hangs
+
+- **Foreground service failed on Android 14**: the manifest declares `foregroundServiceType="dataSync"`,
+  but `startForeground()` passed no type, which throws `MissingForegroundServiceTypeException` on Android
+  14 — downloads degraded to a plain background thread and were killed on switching away.
+- **No fallback when the length is unknown**: the initial space check was skipped entirely when
+  `Content-Length` was missing, so the failure only surfaced as an opaque `IOException` once the partition
+  filled up. The safety watermark is now re-checked every 5 s while downloading.
+- **`LlamaEngine.load()` dereferenced a nullable listener** on every callback path — exactly the path taken
+  when a model fails to load.
+- **Native `g_last_error` was read and written from different threads**: a data race on a `std::string`.
+  Now guarded, and written through a single `setLastError()`.
+
+### Jank / wasted cycles
+
+- **Every streamed chunk rebound the whole bubble**: the engine already coalesces tokens per 40 ms, then the
+  UI called `notifyItemChanged` per chunk, pitting Markdown rendering against the inference thread.
+  Repaints are now throttled to 80 ms with a forced flush at the end.
+- **Network tools had no hard timeout**: `fetch_url` / `web_search` run on the agent thread, where "stop"
+  only takes effect at the next callback. Timeouts tightened to 8 s connect / 12 s read, and reads are
+  byte-capped (the old line-based guard let a single multi-MB line through).
+- **`Lang.zh()` was called thousands of times per second and boxed a Boolean**: now a flag plus a primitive.
+- **`Workspace.list()` sorted by code point**: Chinese filenames came out in arbitrary order; now `Collator`.
+- **Added `.nomedia`** so the media scanner stops walking gigabytes of `.gguf` in external storage.
+
+### Tests
+
+- New `DownloadCenterTest` (4) covering `Content-Range` parsing.
+- `CoreKitTest` gained 7: UTF-8 safe truncation, storage audit findings, sampling clamp rules.
+- 99 → **110 unit tests, all green**; `lintDebug` 0 errors; `assembleRelease` passes (R8 + NDK).
+
+---
 
 ## v2.6.0 — English/Chinese bilingual everywhere
 

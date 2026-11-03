@@ -174,7 +174,15 @@ void releaseSession(Session *s) {
 std::string g_backend_dir;
 
 /// 最近一次加载失败的原因，供上层展示（否则所有失败都只能显示一句笼统提示）。
+/// 由 g_error_mu 保护：nativeInit 写在加载线程，nativeLastError 从界面线程读。
+std::mutex  g_error_mu;
 std::string g_last_error;
+
+/// 统一出口：g_last_error 的读写都在 g_error_mu 下进行。
+void setLastError(const std::string &msg) {
+    std::lock_guard<std::mutex> lock(g_error_mu);
+    g_last_error = msg;
+}
 
 /// 取出句柄对应的会话并加锁（同时持有一份引用，调用方必须调 releaseSession）；
 /// 句柄已失效时返回 nullptr（此时不会解引用，也不会加引用）。
@@ -332,7 +340,12 @@ Java_com_mscope_browser_llama_LlamaBridge_nativeSupported(JNIEnv *env, jclass) {
 /** 最近一次 nativeInit 失败的原因；无失败时为空串。 */
 JNIEXPORT jstring JNICALL
 Java_com_mscope_browser_llama_LlamaBridge_nativeLastError(JNIEnv *env, jclass) {
-    return env->NewStringUTF(g_last_error.c_str());
+    std::string msg;
+    {
+        std::lock_guard<std::mutex> lock(g_error_mu);
+        msg = g_last_error;
+    }
+    return env->NewStringUTF(msg.c_str());
 }
 
 /** 当前实际使用的 CPU 后端描述（如 CPU 型号），用于界面展示。 */
@@ -351,13 +364,16 @@ Java_com_mscope_browser_llama_LlamaBridge_nativeInit(
         jstring jBackendDir) {
     g_backend_dir = toStd(env, jBackendDir);
     backendInitOnce();
-    g_last_error.clear();
+    {
+        std::lock_guard<std::mutex> lock(g_error_mu);
+        g_last_error.clear();
+    }
     const size_t nreg = ggml_backend_reg_count();
     LOGI("后端注册数=%zu, native 库目录=%s", nreg, g_backend_dir.c_str());
 
     const std::string path = toStd(env, jPath);
     if (path.empty()) {
-        g_last_error = "模型路径为空";
+        setLastError("模型路径为空");
         return 0;
     }
 
@@ -368,9 +384,9 @@ Java_com_mscope_browser_llama_LlamaBridge_nativeInit(
     llama_model *model = llama_model_load_from_file(path.c_str(), mp);
     if (model == nullptr) {
         // 区分「后端没起来」与「文件本身有问题」，便于用户判断是装包问题还是模型问题
-        g_last_error = nreg == 0
+        setLastError(nreg == 0
                 ? "本地推理后端未注册（native 库没有释放到 nativeLibraryDir，或该机型指令集不受支持）"
-                : "模型文件无法加载（格式不受支持，或文件不完整 / 下载未完成）";
+                : "模型文件无法加载（格式不受支持，或文件不完整 / 下载未完成）");
         LOGE("模型加载失败: %s", path.c_str());
         return 0;
     }
@@ -411,7 +427,7 @@ Java_com_mscope_browser_llama_LlamaBridge_nativeInit(
         LOGE("上下文创建失败，降级重试：%s", p.name);
     }
     if (ctx == nullptr) {
-        g_last_error = "上下文创建失败（已依次尝试 KV 量化与 FlashAttention 的组合，通常是可用内存不足）";
+        setLastError("上下文创建失败（已依次尝试 KV 量化与 FlashAttention 的组合，通常是可用内存不足）");
         llama_model_free(model);
         return 0;
     }

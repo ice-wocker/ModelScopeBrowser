@@ -197,9 +197,9 @@ public class DownloadCenter {
 
             final boolean resuming = (code == HttpURLConnection.HTTP_PARTIAL);
             if (resuming) {
-                // 远端可能换过文件（同名不同版本），此时 206 返回的区间并不是我们以为的那一段。
+                // 远端可能换了文件（同名不同版本），此时 206 的区间并不是我们以为的那一段。
                 // 解析 Content-Range: bytes start-end/total，start 与本地已有字节数对不上就整体重下，
-                // 否则两代文件会被拼成一个「长度校验能过、加载就崩」的畸形 GGUF。
+                // 否则会把两代文件拼成一个「长度校验能过、加载就崩」的畸形 GGUF。
                 long[] range = parseContentRange(conn.getHeaderField("Content-Range"));
                 if (range != null && range[0] != existing) {
                     Log.w(TAG, "续传区间不连续（本地 " + existing + "，服务端从 " + range[0]
@@ -218,24 +218,11 @@ public class DownloadCenter {
 
             DownloadService.start(ctx, notifText(t), t.percent());
 
-            // 服务端返回的长度不可信（缺少 Content-Length 时是 -1），这里自己兜一层：
-            // 目标体积已知时才检查剩余空间，避免下到一半才因磁盘写满失败。
-            final long knownTotal = t.total;
-            // 这里只要一个粗略的「够不够」判断，不必动用 StorageManager#getAllocatableBytes。
-            @SuppressWarnings({"deprecation", "UsableSpace"})
-            final long usable = dst.getParentFile() == null ? -1 : dst.getParentFile().getUsableSpace();
-            if (knownTotal > 0 && usable > 0) {
-                // 统一交给 StorageGuard：它同时考虑系统安全水位与「续传后仍需的字节数」，
-                // 并把结论写成一句人话（差多少 / 下载后还剩多少）。
-                long need = knownTotal - Math.max(0, t.done);
-                StorageGuard.Check check =
-                        StorageGuard.check(usable, need, Math.max(0, t.done), Lang.zh());
-                if (!check.canStart()) throw new IllegalStateException(check.message);
-                if (check.shouldWarn()) Log.w(TAG, check.message);
-            }
+            guardSpace(dst, t.done, t.total);
 
             byte[] buf = new byte[256 * 1024];
             long lastNotify = 0;
+            long lastSpaceCheck = System.currentTimeMillis();
             try (InputStream in = conn.getInputStream();
                  FileOutputStream out = new FileOutputStream(part, resuming)) {
                 int n;
@@ -247,6 +234,12 @@ public class DownloadCenter {
                     if (now - lastNotify > 400) {
                         lastNotify = now;
                         notifyProgress(t);
+                        // 总长未知（没有 Content-Length）时开头那次空间检查是跳过的，
+                        // 每 5 秒补一次，别等写到分区满才报一个看不懂的 IOException。
+                        if (t.total <= 0 && now - lastSpaceCheck > 5000) {
+                            lastSpaceCheck = now;
+                            guardSpacePartial(dst);
+                        }
                     }
                 }
                 out.flush();
@@ -294,15 +287,12 @@ public class DownloadCenter {
             finish(t, Finish.FAILED, Lang.zh()
                     ? "续传位置与服务器不一致，已停止" : "resume offset mismatch, gave up");
         } catch (CancelledException ce) {
-            //noinspection ResultOfMethodCallIgnored
-            part.delete();
-            clearPending(t);
+            // 取消不删 .part、也不清待续传记录：用户点「取消」常常只是想省流量，
+            // 下次再点下载应该接着下，而不是从 0 重来几个 GB。
+            // 真正想清干净的用户会按「删除」——那条路径会删掉整个模型目录。
             finish(t, Finish.CANCELLED, null);
         } catch (Exception e) {
             if (t.cancelled) {
-                //noinspection ResultOfMethodCallIgnored
-                part.delete();
-                clearPending(t);
                 finish(t, Finish.CANCELLED, null);
             } else {
                 Log.w(TAG, "下载失败", e);
@@ -316,6 +306,22 @@ public class DownloadCenter {
     }
 
     private void finish(Task t, Finish kind, String error) {
+        if (kind == Finish.RESTART) {
+            // 同一 Task 对象直接重排：先摘掉再重新占位，保证任何时刻都不出现两个同路径任务。
+            t.conn = null;
+            tasks.remove(t.model.localPath, t);
+            if (t.cancelled) {
+                finish(t, Finish.CANCELLED, null);
+                return;
+            }
+            if (tasks.putIfAbsent(t.model.localPath, t) == null) {
+                executor.execute(() -> run(t));
+                return;
+            }
+            // 期间被别人占了：放弃这次重排，交回给新任务
+            t.finished = true;
+            return;
+        }
         t.finished = true;
         t.conn = null;
         tasks.remove(t.model.localPath);
@@ -363,8 +369,32 @@ public class DownloadCenter {
         int pct = t.percent();
         if (pct < 0) return t.model.displayName();
         final long secs = Math.max(1, (System.currentTimeMillis() - t.startedAt) / 1000);
-        final String speed = android.text.format.Formatter.formatFileSize(ctx, t.done / secs) + "/s";
+        // 续传时 t.done 含已有字节，直接除以本次耗时会把速度吹成几倍；
+        // 减去基线才是这次真正下载的量。
+        final long moved = Math.max(0, t.done - t.base);
+        final String speed = android.text.format.Formatter.formatFileSize(ctx, moved / secs) + "/s";
         return ctx.getString(R.string.dl_notif_progress_speed, t.model.displayName(), pct, speed);
+    }
+
+    /** 空间体检 + 把结论写成一句人话（差多少 / 下载后还剩多少）。 */
+    private void guardSpace(File dst, long done, long total) {
+        @SuppressWarnings({"deprecation", "UsableSpace"})
+        final long usable = dst.getParentFile() == null ? -1 : dst.getParentFile().getUsableSpace();
+        if (usable > 0) guardSpace(usable, Math.max(0, total - done));
+    }
+
+    /** 总长未知时没法算「还差多少」，只判断当前剩余空间是否还高于系统安全水位。 */
+    private void guardSpacePartial(File dst) {
+        @SuppressWarnings({"deprecation", "UsableSpace"})
+        final long usable = dst.getParentFile() == null ? -1 : dst.getParentFile().getUsableSpace();
+        guardSpace(usable, StorageGuard.HARD_FLOOR_BYTES);
+    }
+
+    private void guardSpace(long usable, long need) {
+        if (need <= 0) return;
+        StorageGuard.Check check = StorageGuard.check(usable, need, 0, Lang.zh());
+        if (!check.canStart()) throw new IllegalStateException(check.message);
+        if (check.shouldWarn()) Log.w(TAG, check.message);
     }
 
     /** 断点临时文件：与目标同目录、同名前缀，保证重启后还能找回上一次的进度。 */
@@ -372,8 +402,7 @@ public class DownloadCenter {
         return new File(dst.getParentFile(), dst.getName() + ".part");
     }
 
-    /** GGUF 文件头固定为 "GGUF"，用它挡掉错误页/HTML 等无效内容。 */
-    /** 校验真的是 GGUF：读文件头而不是只看后缀（魔搭鉴权失败会返回 HTML 错误页）。 */
+    /** 校验真的是 GGUF：读文件头（magic "GGUF"）而不是只看后缀，挡住 HTML 错误页与半截文件。 */
     private static boolean isGguf(File f) {
         return FsKit.sniff(f).matches;
     }
@@ -447,7 +476,8 @@ public class DownloadCenter {
         if (len <= 0 || len > 1024 * 1024) return out;
         try (FileInputStream in = new FileInputStream(f)) {
             byte[] buf = new byte[(int) len];
-            int n = in.read(buf);
+            int n = 0, got;                     // read() 可能短读，循环读满再解析
+            while (n < buf.length && (got = in.read(buf, n, buf.length - n)) > 0) n += got;
             if (n <= 0) return out;
             JSONObject root = new JSONObject(new String(buf, 0, n, StandardCharsets.UTF_8));
             JSONArray arr = root.optJSONArray("tasks");

@@ -59,7 +59,7 @@
 | ABI | arm64-v8a（多档指令集）、armeabi-v7a（单档静态） |
 | 推理后端 | llama.cpp `b11205`，纯 CPU |
 | APK 体积 | 约 8.2 MB（多份 CPU 后端以压缩形式存放） |
-| 单元测试 | 99 个用例（`./gradlew testDebugUnitTest`） |
+| 单元测试 | 110 个用例（`./gradlew testDebugUnitTest`） |
 | 许可证 | MIT |
 
 ## 2 界面与交互

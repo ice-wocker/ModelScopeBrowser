@@ -18,6 +18,8 @@ public class LocalModelStore {
 
     private static final String TAG = "LocalModelStore";
     private static final String INDEX = "index.json";
+    /** 阻止系统媒体扫描器索引模型文件（外部存储目录下动辄几个 GB，扫一遍很贵）。 */
+    private static final String NOMEDIA = ".nomedia";
 
     private final File dir;
 
@@ -27,6 +29,14 @@ public class LocalModelStore {
         dir = new File(base, "models");
         if (!dir.exists() && !dir.mkdirs()) {
             Log.w(TAG, "无法创建模型目录: " + dir);
+        }
+        // 名字以 "." 开头、长度固定：备份规则里按路径前缀排除要靠它，
+        // 而 "models" 这种太通用的名字容易和别的东西撞上。
+        try {
+            //noinspection ResultOfMethodCallIgnored
+            new File(dir, NOMEDIA).createNewFile();
+        } catch (Exception ignored) {
+            // 只是个标记文件，建不出来不影响功能
         }
     }
 
@@ -128,7 +138,8 @@ public class LocalModelStore {
         if (len <= 0 || len > 8L * 1024 * 1024) return new JSONArray();
         try (java.io.FileInputStream in = new java.io.FileInputStream(f)) {
             byte[] buf = new byte[(int) len];
-            int read = in.read(buf);
+            int read = 0, r;                    // read() 可能短读，循环读满再解析
+            while (read < buf.length && (r = in.read(buf, read, buf.length - read)) > 0) read += r;
             if (read <= 0) return new JSONArray();
             return new JSONArray(new String(buf, 0, read, StandardCharsets.UTF_8));
         } catch (Exception e) {
