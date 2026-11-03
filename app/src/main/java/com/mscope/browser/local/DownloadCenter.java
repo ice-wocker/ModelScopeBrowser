@@ -484,5 +484,6 @@ public class DownloadCenter {
     }
 
     private static class CancelledException extends Exception {
+        private static final long serialVersionUID = 1L;
     }
 }

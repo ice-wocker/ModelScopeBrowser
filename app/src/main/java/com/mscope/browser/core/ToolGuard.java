@@ -28,9 +28,13 @@ public final class ToolGuard {
     /** 指纹里参数部分的最大长度：写大文件时参数很长，没必要全留。 */
     public static final int MAX_ARGS = 240;
 
+    /** 连续多少轮「只查询、没有进展」就收尾。 */
+    public static final int IDLE_BUDGET = 3;
+
     private final Set<String> seen = new LinkedHashSet<>();
     private int repeats;
     private int executed;
+    private int idle;
 
     /** 一次判定结果。 */
     public static final class Verdict {
@@ -72,6 +76,28 @@ public final class ToolGuard {
         return new Verdict(false, stop, reason);
     }
 
+    /**
+     * 记一次「本轮没有产生改动」的往返。
+     *
+     * <p>和重复判定是两件事：重复是「同一个调用又来一次」，空转是「换着花样查，
+     * 但一步也没往前走」。后者更隐蔽 —— 模型会反复 read_file / list_files / kb_search，
+     * 每次都合法、都不重复，却永远不写。连续几次就说明它卡住了。
+     *
+     * @return 本轮的累计空转次数
+     */
+    public int markIdleRound() {
+        return ++idle;
+    }
+
+    /** 有实际改动时清零连续计数（改过东西就不算空转）。 */
+    public void markProgress() {
+        idle = 0;
+    }
+
+    public int idleRounds() {
+        return idle;
+    }
+
     /** 本轮真正执行过多少次。 */
     public int executedCount() {
         return executed;
@@ -90,6 +116,7 @@ public final class ToolGuard {
         seen.clear();
         repeats = 0;
         executed = 0;
+        idle = 0;
     }
 
     /**

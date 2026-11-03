@@ -38,18 +38,25 @@ import com.mscope.browser.agent.ToolCall;
 import com.mscope.browser.agent.WebSearch;
 import com.mscope.browser.agent.Workspace;
 import com.mscope.browser.agent.WorkspaceActivity;
+import com.mscope.browser.core.Bench;
+import com.mscope.browser.core.DeviceFacts;
 import com.mscope.browser.core.MarkdownOutline;
-import com.mscope.browser.i18n.Lang;
 import com.mscope.browser.core.MemoryBudget;
+import com.mscope.browser.core.PerfAdvisor;
 import com.mscope.browser.core.PerfStats;
+import com.mscope.browser.core.Planner;
 import com.mscope.browser.core.PromptTemplate;
+import com.mscope.browser.core.Rounds;
 import com.mscope.browser.core.TextKit;
 import com.mscope.browser.core.ToolGuard;
 import com.mscope.browser.core.Validators;
+import com.mscope.browser.i18n.Lang;
 import com.mscope.browser.local.LocalModel;
 
 import org.json.JSONObject;
 
+import java.io.File;
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -98,8 +105,19 @@ public class ChatActivity extends BaseActivity {
         return PromptTemplate.body(agent ? PromptTemplate.Preset.AGENT : PromptTemplate.Preset.GENERAL);
     }
 
-    /** 单轮对话里最多允许的工具调用轮数，防止模型反复空转。 */
-    private static final int MAX_ROUNDS = 8;
+    /**
+     * 单轮预算：以前这里是写死的 8 步。
+     *
+     * <p>8 不是安全边界，只是当初随手写的数字。「读文件 → 改一处 → 再读回来核对」
+     * 就要 3 步，稍复杂一点的任务必然撞上限，用户看到的是「已达到上限」而事情只做了一半。
+     *
+     * <p>现在换成一个三线预算（步数 / 墙钟 / 上下文），由 {@link Rounds} 统一裁决：
+     * 步数按难度给到 32~200，任何一条线到顶都体面收尾并说明原因。
+     */
+    private static final String KEY_EFFORT = "agent_effort";
+    private Rounds.Effort effort = Rounds.Effort.NORMAL;
+    /** 本轮预算快照（生成时用，线程安全由 volatile 保证读写可见）。 */
+    private volatile Rounds.Budget budget = new Rounds.Budget(Rounds.Effort.NORMAL, 0);
 
     /**
      * 工具结果之后补的一句提醒。
@@ -214,6 +232,18 @@ public class ChatActivity extends BaseActivity {
                         Toast.makeText(this, String.valueOf(e.getMessage()), Toast.LENGTH_SHORT).show();
                     }
                 }));
+        agentTools.setProber(new AgentTools.Prober() {
+            @Override
+            public List<Bench.Result> runBench() {
+                if (!engine.isLoaded() || engine.isGenerating()) return null;
+                return engine.runBench(Lang.zh());
+            }
+
+            @Override
+            public List<DeviceFacts.Item> deviceFacts() {
+                return collectFacts();
+            }
+        });
         prefs = getSharedPreferences(PREF, MODE_PRIVATE);
         nCtx = prefs.getInt(KEY_CTX, DEFAULT_CTX);
         // 设备内存先算一遍：这是「默认值是否放得下」的唯一依据。
@@ -225,6 +255,7 @@ public class ChatActivity extends BaseActivity {
         }
         systemPrompt = nz(prefs.getString(KEY_SYS, ""));
         agentMode = prefs.getBoolean(KEY_AGENT, true);
+        effort = Rounds.parse(prefs.getString(KEY_EFFORT, Rounds.Effort.NORMAL.name()));
         toolWeb = prefs.getBoolean(KEY_TOOL_WEB, true);
 
         markwon = Markwon.builder(this)
@@ -408,8 +439,9 @@ public class ChatActivity extends BaseActivity {
             tvCtx.setText(R.string.chat_searching);
         } else if (stopping) {
             tvCtx.setText(R.string.chat_stopping);
-        } else if (generating && agentStep >= 2) {
-            tvCtx.setText(getString(R.string.agent_step, agentStep));
+        } else if (generating && agentStep >= 1) {
+            // 同时显示「第几步 / 总共几步」：用户能判断是该等还是该停
+            tvCtx.setText(getString(R.string.agent_step_budget, agentStep, budget.rounds));
         } else {
             String usage = getString(R.string.chat_ctx_usage, engine.cachedTokens(), engine.contextSize());
             // 有足够样本时把均值 / P90 一并显示：单次 tok/s 抖动太大，只看最后一个数会误判设备
@@ -576,17 +608,24 @@ public class ChatActivity extends BaseActivity {
     /**
      * 工具调用闭环：生成 → 解析 → 执行 → 结果回灌 → 再生成。
      * 只有智能体模式才会真的解析并执行工具；否则退化成单次生成。
+     *
+     * <p>停下来有三种理由，都会告诉用户具体是哪一条（见 {@link Rounds}）：
+     * 步数用完、时间用完、上下文将满。以前只有一个写死的轮数上限，
+     * 而且到顶时的提示是「已达上限」，用户不知道是该继续还是该改目标。
      */
     private void runAgent(final int continueFrom) {
         final List<ChatMessage> ctx = buildBaseContext();
         // 本轮已经执行过的调用（名字 + 参数），用于识别「原地打转」：
         // 小模型拿到工具结果后仍可能重复同一个调用，不拦就会把整个轮次配额烧光。
         final ToolGuard guard = new ToolGuard();
+        final Rounds.Budget bud = new Rounds.Budget(effort, System.currentTimeMillis());
+        budget = bud;
         int reuse = continueFrom;
         boolean cancelledMidRound = false;
-        boolean converged = false;
+        Rounds.Stop why = Rounds.Stop.NONE;
+        int round = 0;
 
-        for (int round = 0; round < MAX_ROUNDS; round++) {
+        for (; round < bud.rounds; round++) {
             if (turnCancelled || !alive) break;
             agentStep = round + 1;
             uiSync(this::updateCtx);
@@ -614,7 +653,6 @@ public class ChatActivity extends BaseActivity {
             applyAssistantText(gen.index, shown, last || hasPrefix);
 
             if (last) {                                    // 没有工具调用：这就是最终答案
-                converged = true;
                 if (!TextUtils.isEmpty(visible)) {
                     final String v = visible;
                     uiSync(() -> autoSaveFiles(v));
@@ -629,6 +667,7 @@ public class ChatActivity extends BaseActivity {
             // 表现就是看不见结果、重复调用同一个工具。
             final StringBuilder turn = new StringBuilder(gen.text == null ? "" : gen.text);
             boolean executedThisRound = false;
+            boolean allIdle = true;                        // 本轮是否全是只读/查询类调用
             for (ToolCall c : calls) {
                 if (stoppedBy(gen)) break;
                 final int card = addToolCard(c);
@@ -648,12 +687,19 @@ public class ChatActivity extends BaseActivity {
                 } else {
                     result = agentTools.exec(c);
                 }
+                if (AgentTools.risky(c.name)) allIdle = false;
+                if (!verdict.run) allIdle = false;
                 executedThisRound = true;
                 updateToolCard(card, result);
                 turn.append('\n').append(toolResultText(fitForContext(result)));
             }
             ctx.add(new ChatMessage(ChatMessage.ASSISTANT,
                     turn.toString() + "\n" + toolResultReminder()));
+
+            // 上下文将满：再喂一轮只会把最早的内容挤掉，模型看到的是一段残缺历史
+            double ctxUse = ctxRatio();
+            why = Rounds.stopReason(round, bud, System.currentTimeMillis(), ctxUse);
+            if (why != Rounds.Stop.NONE) break;
 
             if (guard.shouldStop()) {
                 // 已经开始原地打转：再喂一轮只会更糟，直接收尾并说明原因
@@ -662,13 +708,38 @@ public class ChatActivity extends BaseActivity {
                 break;
             }
             if (!executedThisRound) break;      // 本轮被叫停，没有任何工具真的执行：不必再喂一轮
+            // 这一步全是查询、且模型已经有了工具结果：再多跑通常只是把同样的东西再查一遍
+            if (allIdle && onlyReadOnly(calls) && guard.markIdleRound() >= ToolGuard.IDLE_BUDGET) {
+                uiSync(() -> addTool(getString(R.string.chat_tool_info), "info",
+                        getString(R.string.agent_idle_stop)));
+                break;
+            }
+            if (!allIdle) guard.markProgress();
         }
 
-        if (agentStep >= MAX_ROUNDS && !converged && !turnCancelled && !cancelledMidRound) {
-            uiSync(() -> addTool(getString(R.string.chat_tool_info), "info",
-                    getString(R.string.agent_max_rounds, MAX_ROUNDS)));
+        if (why != Rounds.Stop.NONE && !turnCancelled && !cancelledMidRound) {
+            final String msg = Rounds.stopMessage(why, bud, round, System.currentTimeMillis());
+            uiSync(() -> addTool(getString(R.string.chat_tool_info), "info", msg));
         }
         finishTurn();
+    }
+
+    /** 本轮调用是否全是只读（不动本机状态）。 */
+    private static boolean onlyReadOnly(List<ToolCall> calls) {
+        for (ToolCall c : calls) if (AgentTools.risky(c.name)) return false;
+        return true;
+    }
+
+    /** 当前上下文占用比例（0~1）；引擎未知时给 0，不影响判断。 */
+    private double ctxRatio() {
+        try {
+            int n = engine.cachedTokens();
+            int max = engine.contextSize();
+            if (n <= 0 || max <= 0) return 0;
+            return Math.min(1.0, (double) n / max);
+        } catch (Throwable t) {
+            return 0;
+        }
     }
 
     /** 请求 = 系统提示（含工具说明与本轮联网资料）+ 历史（跳过工具卡片）。 */
@@ -728,6 +799,15 @@ public class ChatActivity extends BaseActivity {
         return AgentTools.enabled(toolWeb, true, true);
     }
 
+    /** 最后一条用户输入（用于把最相关的记忆带进提示词）。 */
+    private String lastUserText() {
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            ChatMessage m = messages.get(i);
+            if (m.isUser() && !TextUtils.isEmpty(m.content)) return m.content;
+        }
+        return "";
+    }
+
     private String buildSystemPrompt() {
         StringBuilder sb = new StringBuilder();
         String base = systemPrompt == null ? "" : systemPrompt.trim();
@@ -748,6 +828,22 @@ public class ChatActivity extends BaseActivity {
             tools = tools + PromptTemplate.noRepeatRule();
         }
         sb.append(PromptTemplate.compose(base, preset, tools, null));
+        // 把模型「自己的工作状态」还给模型：待办进度、改过哪些文件、记住了什么。
+        // 这些都很短，但正是多步任务最容易丢的三样东西（上下文一裁就没了）。
+        if (agentMode) {
+            String todo = Planner.brief(agentTools.todo(), Lang.zh(), 300);
+            if (!TextUtils.isEmpty(todo)) {
+                sb.append("\n\n").append(getString(R.string.chat_prompt_todo)).append('\n').append(todo);
+            }
+            String journal = agentTools.journal().summary(280, Lang.zh());
+            if (!TextUtils.isEmpty(journal)) {
+                sb.append("\n\n").append(getString(R.string.chat_prompt_journal)).append('\n').append(journal);
+            }
+        }
+        String mem = agentTools.memoryStore().brief(lastUserText(), 360);
+        if (!TextUtils.isEmpty(mem)) {
+            sb.append("\n\n").append(getString(R.string.chat_prompt_memory)).append('\n').append(mem);
+        }
         if (!TextUtils.isEmpty(pendingWebContext)) {
             sb.append("\n\n").append(getString(R.string.chat_web_context))
               .append('\n').append(pendingWebContext);
@@ -1108,7 +1204,7 @@ public class ChatActivity extends BaseActivity {
                     return;
                 }
                 try {
-                    HtmlPreviewActivity.start(this, workspace.normalize(rest));
+                    HtmlPreviewActivity.start(this, Workspace.normalize(rest));
                 } catch (Exception e) {
                     addTool(getString(R.string.chat_tool_error), "error", String.valueOf(e.getMessage()));
                 }
@@ -1427,6 +1523,12 @@ public class ChatActivity extends BaseActivity {
         actions.add(getString(R.string.chat_history));
         actions.add(getString(R.string.workspace_title));
         actions.add(getString(R.string.term_title));
+        actions.add(getString(R.string.agent_effort_title, effort.label(), effort.rounds));
+        if (!agentTools.todo().isEmpty()) actions.add(getString(R.string.agent_todo_title));
+        if (agentTools.journal().size() > 0) actions.add(getString(R.string.agent_journal_title));
+        actions.add(getString(R.string.agent_tools_title));
+        actions.add(getString(R.string.agent_memory_title));
+        actions.add(getString(R.string.agent_bench));
         actions.add(getString(R.string.chat_params));
         actions.add(getString(R.string.chat_system));
         if (hasOutline) actions.add(getString(R.string.chat_outline));
@@ -1443,6 +1545,18 @@ public class ChatActivity extends BaseActivity {
                         openWorkspace();
                     } else if (picked.equals(getString(R.string.term_title))) {
                         openTerminal();
+                    } else if (picked.startsWith(getString(R.string.agent_effort_title, effort.label(), effort.rounds))) {
+                        showEffortDialog();
+                    } else if (picked.equals(getString(R.string.agent_todo_title))) {
+                        showTodoDialog();
+                    } else if (picked.equals(getString(R.string.agent_journal_title))) {
+                        showJournalDialog();
+                    } else if (picked.equals(getString(R.string.agent_tools_title))) {
+                        showToolCatalog();
+                    } else if (picked.equals(getString(R.string.agent_memory_title))) {
+                        showMemoryDialog();
+                    } else if (picked.equals(getString(R.string.agent_bench))) {
+                        runBench();
                     } else if (picked.equals(getString(R.string.chat_params))) {
                         showParamsDialog();
                     } else if (picked.equals(getString(R.string.chat_system))) {
@@ -1516,6 +1630,7 @@ public class ChatActivity extends BaseActivity {
             engine.cancel();
         }
         allowAllWrites = false;                      // 新会话重新逐次确认
+        agentTools.resetSession();                   // 待办与工作日志属于会话级，长期记忆保留
         persist();                                   // 先存当前会话
         openSession(store.create(model.localPath));  // 再开新会话
         adapter.notifyDataSetChanged();
@@ -1580,6 +1695,216 @@ public class ChatActivity extends BaseActivity {
         it.putExtra(Intent.EXTRA_SUBJECT, getString(R.string.chat_export));
         it.putExtra(Intent.EXTRA_TEXT, sb.toString().trim());
         startActivity(Intent.createChooser(it, getString(R.string.chat_export)));
+    }
+
+    /** 本机事实：模型问「我手机怎么样」时，它得看得见真实数据而不是编。 */
+    private List<DeviceFacts.Item> collectFacts() {
+        List<DeviceFacts.Item> out = new ArrayList<>();
+        out.add(DeviceFacts.of("model", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL,
+                "机型", "device"));
+        out.add(DeviceFacts.of("android", "Android " + android.os.Build.VERSION.RELEASE
+                        + " (SDK " + android.os.Build.VERSION.SDK_INT + ")",
+                "系统", "android"));
+        StringBuilder abi = new StringBuilder();
+        for (String a : android.os.Build.SUPPORTED_ABIS) {
+            if (abi.length() > 0) abi.append(", ");
+            abi.append(a);
+        }
+        out.add(DeviceFacts.of("abi", abi.toString(), "ABI", "ABI"));
+        try {
+            MemoryBudget.Snapshot mem = MemoryBudget.read();
+            out.add(DeviceFacts.of("mem", DeviceFacts.bytes(mem.totalKb * 1024) + " / "
+                            + (Lang.zh() ? "可用 " : "free ") + DeviceFacts.bytes(mem.availableKb * 1024),
+                    "内存", "memory"));
+        } catch (Throwable ignored) {
+        }
+        try {
+            java.io.File files = getFilesDir();
+            android.os.StatFs sf = new android.os.StatFs(files.getAbsolutePath());
+            out.add(DeviceFacts.of("storage", DeviceFacts.bytes(sf.getAvailableBytes()) + " / "
+                            + DeviceFacts.bytes(sf.getTotalBytes()),
+                    Lang.zh() ? "存储（可用/总）" : "storage (free/total)",
+                    "storage (free/total)"));
+        } catch (Throwable ignored) {
+        }
+        try {
+            android.content.Intent batt = registerReceiver(null,
+                    new android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED));
+            if (batt != null) {
+                int level = batt.getIntExtra("level", -1);
+                int scale = batt.getIntExtra("scale", 100);
+                if (level >= 0 && scale > 0) {
+                    out.add(DeviceFacts.of("battery", (level * 100 / scale) + "%",
+                            "电量", "battery"));
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        out.add(DeviceFacts.of("engine", engine.isLoaded()
+                        ? (Lang.zh() ? "已加载 " : "loaded ") + (model == null ? "" : model.displayName())
+                        + " · " + engine.backendInfo()
+                        : (Lang.zh() ? "未加载模型" : "no model loaded"),
+                "推理引擎", "engine"));
+        out.add(DeviceFacts.of("ctx", engine.cachedTokens() + " / " + engine.contextSize()
+                        + (Lang.zh() ? " token（已用/窗口）" : " tokens (used/window)"),
+                "上下文", "context"));
+        out.add(DeviceFacts.of("speed", String.format(Locale.ROOT, "%.1f tok/s", engine.lastTokensPerSec()),
+                "实测解速", "measured decode speed"));
+        out.add(DeviceFacts.of("kb", agentTools.index().stats(Lang.zh()),
+                "工作区索引", "workspace index"));
+        return out;
+    }
+
+    /* ------------------------------------------------------ 档位 / 待办 / 日志 / 基准 */
+
+    /** 单轮预算档位：步数与时间的取舍，让用户按任务复杂度自己选。 */
+    private void showEffortDialog() {
+        Rounds.Effort[] all = Rounds.Effort.values();
+        String[] labels = new String[all.length];
+        int checked = 0;
+        for (int i = 0; i < all.length; i++) {
+            labels[i] = getString(R.string.agent_effort_item, all[i].label(), all[i].rounds,
+                    all[i].budgetMs / 60000);
+            if (all[i] == effort) checked = i;
+        }
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.agent_effort_title_plain)
+                .setSingleChoiceItems(labels, checked, (d, which) -> {
+                    effort = all[which];
+                    prefs.edit().putString(KEY_EFFORT, effort.name()).apply();
+                    d.dismiss();
+                    updateCtx();
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
+    /** 模型自己维护的待办清单：看得见进度，它就不容易把同一件事做两遍。 */
+    private void showTodoDialog() {
+        List<Planner.Item> items = agentTools.todo();
+        if (items.isEmpty()) {
+            Toast.makeText(this, R.string.agent_todo_empty, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(getString(R.string.agent_todo_title) + " (" + Planner.doneCount(items)
+                        + "/" + items.size() + ")")
+                .setMessage(Planner.render(items))
+                .setPositiveButton(android.R.string.ok, null)
+                .show();
+    }
+
+    /** 工作日志：上下文被裁掉之后，模型还能靠它「想起」自己做过什么。 */
+    private void showJournalDialog() {
+        android.widget.ScrollView sv = new android.widget.ScrollView(this);
+        android.widget.TextView tv = new android.widget.TextView(this);
+        int pad = (int) (16 * getResources().getDisplayMetrics().density);
+        tv.setPadding(pad, pad, pad, pad);
+        tv.setTextIsSelectable(true);
+        tv.setText(agentTools.journal().render(0, Lang.zh()));
+        sv.addView(tv);
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.agent_journal_title)
+                .setView(sv)
+                .setPositiveButton(android.R.string.ok, null)
+                .show();
+    }
+
+    /** 当前会话实际启用的工具清单（带分组与「需确认」标记）。 */
+    private void showToolCatalog() {
+        Set<String> on = enabledTools();
+        List<String[]> all = AgentTools.catalog(Lang.zh());
+        StringBuilder sb = new StringBuilder();
+        sb.append(getString(R.string.agent_tools_count, on.size(), all.size())).append("\n\n");
+        String lastGroup = "";
+        for (String[] t : all) {
+            boolean active = on.contains(t[0]);
+            if (!t[2].equals(lastGroup)) {
+                lastGroup = t[2];
+                sb.append("【").append(lastGroup).append("】\n");
+            }
+            sb.append(active ? "● " : "○ ").append(t[0]);
+            if ("1".equals(t[3])) sb.append(Lang.zh() ? "（需确认）" : " (asks first)");
+            sb.append("\n    ").append(t[1]).append('\n');
+        }
+        android.widget.ScrollView sv = new android.widget.ScrollView(this);
+        android.widget.TextView tv = new android.widget.TextView(this);
+        int pad = (int) (16 * getResources().getDisplayMetrics().density);
+        tv.setPadding(pad, pad, pad, pad);
+        tv.setTextIsSelectable(true);
+        tv.setText(sb.toString());
+        sv.addView(tv);
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.agent_tools_title)
+                .setView(sv)
+                .setPositiveButton(android.R.string.ok, null)
+                .show();
+    }
+
+    /** 长期记忆：跨会话的事实，写入即脱敏，可单条删除。 */
+    private void showMemoryDialog() {
+        final List<com.mscope.browser.core.Memory.Fact> facts = agentTools.memoryStore().all();
+        if (facts.isEmpty()) {
+            new MaterialAlertDialogBuilder(this)
+                    .setTitle(R.string.agent_memory_title)
+                    .setMessage(R.string.agent_memory_empty)
+                    .setPositiveButton(android.R.string.ok, null)
+                    .show();
+            return;
+        }
+        final String[] items = new String[facts.size()];
+        for (int i = facts.size() - 1, k = 0; i >= 0; i--, k++) {
+            items[k] = facts.get(i).text;
+        }
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(getString(R.string.agent_memory_title) + " (" + facts.size() + ")")
+                .setItems(items, (d, which) -> {
+                    // 点一条 = 删一条：记忆是「当前生效」的，不需要留存版本
+                    int at = facts.size() - 1 - which;
+                    agentTools.memoryStore().remove(facts.get(at).id);
+                    Toast.makeText(this, R.string.agent_memory_removed, Toast.LENGTH_SHORT).show();
+                })
+                .setNeutralButton(R.string.agent_memory_clear, (d, w) -> {
+                    agentTools.memoryStore().clear();
+                    Toast.makeText(this, R.string.agent_memory_cleared, Toast.LENGTH_SHORT).show();
+                })
+                .setPositiveButton(android.R.string.ok, null)
+                .show();
+    }
+
+    /** 跑一次端侧基准：回答「我这台机器跑这个模型到底什么速度」。 */
+    private void runBench() {
+        if (!engine.isLoaded()) {
+            Toast.makeText(this, R.string.agent_bench_no_model, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (engine.isGenerating()) {
+            Toast.makeText(this, R.string.agent_bench_busy, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        final Toast t = Toast.makeText(this, R.string.agent_bench_running, Toast.LENGTH_LONG);
+        t.show();
+        tools.execute(() -> {
+            List<Bench.Result> rs = engine.runBench(Lang.zh());
+            ui.post(() -> {
+                t.cancel();
+                if (!alive) return;
+                if (rs.isEmpty()) {
+                    Toast.makeText(this, R.string.agent_bench_failed, Toast.LENGTH_LONG).show();
+                    return;
+                }
+                StringBuilder sb = new StringBuilder();
+                for (Bench.Result r : rs) sb.append(r.line(Lang.zh())).append('\n');
+                sb.append('\n').append(Bench.verdict(rs, Lang.zh()));
+                sb.append('\n').append(engine.advice(Lang.zh()));
+                new MaterialAlertDialogBuilder(this)
+                        .setTitle(R.string.agent_bench)
+                        .setMessage(sb.toString())
+                        .setPositiveButton(android.R.string.ok, null)
+                        .show();
+                updateCtx();
+            });
+        });
     }
 
     private void showParamsDialog() {

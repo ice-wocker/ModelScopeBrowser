@@ -12,8 +12,10 @@ android {
         applicationId "com.mscope.browser"
         minSdk 24
         targetSdk 36
-        versionCode 16
-        versionName "2.8.0"
+        versionCode 17
+        // alpha 命名：这批能力（可选步数预算、工作日志、检索索引、长期记忆、
+        // 自适应采样、内容级熔断）都是新东西，按 alpha 发，不用 2.x 假装成熟。
+        versionName "alpha 1.0"
 
         ndk {
             // 只打包真机常见 ABI，控制 APK 体积与编译时间

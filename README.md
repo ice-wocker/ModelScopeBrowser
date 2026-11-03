@@ -14,7 +14,7 @@ the model can run shell commands, search the web and work with files.*
 [![Android](https://img.shields.io/badge/Android-7.0%2B%20(API%2024)-3DDC84?logo=android&logoColor=white)](#)
 [![llama.cpp](https://img.shields.io/badge/llama.cpp-b11205-000000)](#)
 [![推理](https://img.shields.io/badge/%E6%8E%A8%E7%90%86-%E7%BA%AFCPU%20%C2%B7%20%E5%A4%9A%E6%A1%A3%E6%8C%87%E4%BB%A4%E9%9B%86-4B5563)](#)
-[![Tests](https://img.shields.io/badge/tests-99%20passed-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-204%20passed-brightgreen)](#)
 
 [**English**](README.en.md) · [下载安装](#下载安装) · [功能](#功能) · [怎么用](#怎么用) · [技术亮点](#技术亮点) · [文档](#文档) · [构建](#构建) · [作者](#作者)
 
@@ -28,7 +28,9 @@ the model can run shell commands, search the web and work with files.*
 对话页不是「只能聊天」的玩具——它是一个**能动手的智能体**：模型可以自己调用手机终端跑命令、联网搜索、读写工作区文件、预览网页，
 并在拿到真实结果后继续推理。
 
-> **当前版本 v2.8.0**（versionCode 16）· 原生化 arm64 多档指令集 · 纯 CPU 离线推理 · 数据不出设备
+> **当前版本 alpha 1.0**（versionCode 17）· 原生化 arm64 多档指令集 · 纯 CPU 离线推理 · 数据不出设备
+>
+> alpha = 能力是新的，接口（工具名/参数/菜单）可能还会动。上一版 2.8.0 的所有修复都在里面。
 
 ![架构](docs/assets/arch.png)
 
@@ -62,16 +64,38 @@ the model can run shell commands, search the web and work with files.*
 </td></tr>
 <tr><td><b>智能体</b></td><td>
 
-模型输出工具调用 → App 真实执行 → 结果回灌 → 继续推理，**最多 8 步**，可随时停止。可用工具：
+模型输出工具调用 → App 真实执行 → 结果回灌 → 继续推理。**单轮步数不再是写死的 8 步**，
+而是按难度给到 **32 / 64 / 128 / 200 步**，再叠一层「墙钟时间」与「上下文将满」的兜底 ——
+任何一条到顶都会体面收尾并说明是哪一条，而不是只丢一句「已达上限」。
 
-| 工具 | 作用 |
-|---|---|
-| `shell` | 在手机**真终端**执行命令（`/system/bin/sh`，工作目录 = 工作区） |
-| `web_search` / `fetch_url` | 联网搜索 / 抓取网页正文（拒绝本机与内网地址） |
-| `read_file` / `write_file` / `list_files` / `delete_file` | 读写工作区文件（原子写，路径强制收敛） |
-| `open_preview` | 在内置 WebView 打开工作区 HTML |
+**22 个工具**（提示词、解析器、接口 schema 共用一份定义）：
 
-`shell`、`write_file`、`delete_file` 执行前**弹窗确认**，也可选「本会话都允许」。
+| 分组 | 工具 | 作用 |
+|---|---|---|
+| 本机 | `shell` | 在手机**真终端**执行命令（`/system/bin/sh`，工作目录 = 工作区） |
+| 本机 | `world_info` | 机型 / ABI / 内存 / 存储 / 电量 / 已加载模型 / 上下文用量 |
+| 本机 | `now` | 当前时间与时区 |
+| 本机 | `calc` | 四则与幂运算，**确定性求值**（小模型的算术错误看不出来，所以不让它自己算） |
+| 联网 | `web_search` / `fetch_url` | 联网搜索 / 抓正文（拒绝本机与内网地址） |
+| 文件 | `read_file` / `write_file` / `list_files` / `delete_file` | 读写工作区（原子写，路径强制收敛） |
+| 文件 | `file_info` | 大小、修改时间、类型 —— 读之前先判断 |
+| 文件 | `edit_file` | **片段替换**：`old` 必须唯一命中，找不到或有多处都直接报错，绝不猜 |
+| 文件 | `apply_patch` | **批量统一 diff**，带行号校验、失败零写入 |
+| 文件 | `open_preview` | 在内置 WebView 打开工作区 HTML |
+| 增强 | `todo_write` | 模型自己维护计划，系统每轮回灌进度（对抗「多步任务忘了做到哪」） |
+| 增强 | `journal_read` | 工作日志：本会话做过什么、改过哪些文件 |
+| 增强 | `kb_index` / `kb_search` | 工作区**检索索引**（BM25 + 中文二元组），大文件不必整段塞进上下文 |
+| 增强 | `remember` / `recall` | 跨会话**长期记忆**，写入即密钥脱敏 |
+| 增强 | `bench` | 现场跑一次推理基准，得到预填充 / 解码 tok/s |
+
+`shell`、`write_file`、`delete_file`、`edit_file`、`apply_patch`、`bench` 执行前**弹窗确认**，也可选「本会话都允许」。
+
+</td></tr>
+<tr><td><b>推理引擎</b></td><td>
+
+- **自适应采样**：按实测解速（tok/s）选参数。慢机（<4）降温度、压输出上限，先保证说完；快机（>12）放宽输出与多样性。全程兜底 `top-p ∈ (0,1]`、`top-k ≥ 1` —— 这两个值一旦越界，采样器会静默退化甚至崩，输出看着「怪」但没人报错。
+- **两级复读熔断**：原来只看「几秒内一个 token 都没新增」，抓不到「换着花样重复」。新增内容级检查（窗口内 ≥16 字的片段重复 3 次即判定），每 96 个 token 查一次。
+- **测速基准**：短输入 + 长输入两个固定用例，给出一句人话结论（「很流畅」/「偏慢，建议换更小的量化」）。
 
 </td></tr>
 <tr><td><b>工作区</b></td><td>
@@ -376,7 +400,7 @@ keyPassword=******
 
 [`.github/workflows/android.yml`](.github/workflows/android.yml) 分两个 job：
 
-1. **verify**：单元测试（99 个）+ Lint，上传测试与 Lint 报告；
+1. **verify**：单元测试（204 个）+ Lint，上传测试与 Lint 报告；
 2. **build**（`needs: verify`）：补装 SDK → 缓存 native 构建 → 配置签名 → `assembleDebug` + `assembleRelease` → 
    **校验产物**（`apksigner` 打印证书、`aapt2` 打印 ABI 与版本，tag 上拒绝 debug 签名）→ 上传 `apk` artifact；
    推送 `v*` 标签时自动创建 Release 并附上 APK。

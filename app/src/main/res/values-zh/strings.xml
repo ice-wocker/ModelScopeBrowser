@@ -245,4 +245,30 @@
     <string name="lang_zh">中文</string>
     <string name="lang_en">English</string>
     <string name="lang_changed">语言已切换 / Language changed</string>
+
+    <!-- alpha 1.0：单轮预算 / 待办 / 日志 / 工具清单 / 记忆 / 基准 -->
+    <string name="agent_step_budget">智能体执行中 · 第 %1$d / %2$d 步</string>
+    <string name="agent_idle_stop">连续几轮都只在查东西、没有产生任何改动，已中止，避免空转。可以要求它直接动手，或把任务拆小。</string>
+    <string name="agent_effort_title">单轮步数：%1$s（%2$d 步）</string>
+    <string name="agent_effort_title_plain">单轮步数预算</string>
+    <string name="agent_effort_item">%1$s · %2$d 步 / %3$d 分钟</string>
+    <string name="agent_todo_title">计划 / 待办</string>
+    <string name="agent_todo_empty">还没有计划。需要多步的任务模型会自己写一份。</string>
+    <string name="agent_journal_title">工作日志</string>
+    <string name="agent_tools_title">工具清单</string>
+    <string name="agent_tools_count">已启用 %1$d / %2$d 个工具</string>
+    <string name="agent_memory_title">长期记忆</string>
+    <string name="agent_memory_empty">空的。当某条信息需要跨会话保留时，模型会写进这里；写入前会先做密钥脱敏。</string>
+    <string name="agent_memory_clear">全部清空</string>
+    <string name="agent_memory_cleared">记忆已清空</string>
+    <string name="agent_memory_removed">已删除</string>
+    <string name="agent_bench">测速基准</string>
+    <string name="agent_bench_running">正在测速…要等一会儿</string>
+    <string name="agent_bench_failed">没测到有效数据（模型没就绪？）</string>
+    <string name="agent_bench_busy">当前还在生成，等这一轮结束后再测</string>
+    <string name="agent_bench_no_model">先加载一个模型</string>
+
+    <string name="chat_prompt_todo">当前计划（由你用 todo_write 维护）：</string>
+    <string name="chat_prompt_journal">你在本会话里已经做过的事：</string>
+    <string name="chat_prompt_memory">关于这位用户记住的事实（可能不相关）：</string>
 </resources>

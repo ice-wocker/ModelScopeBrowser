@@ -64,7 +64,17 @@ public class Workspace {
     private final File root;
 
     public Workspace(Context ctx) {
-        root = new File(ctx.getFilesDir(), "workspace");
+        this(new File(ctx.getFilesDir(), "workspace"));
+    }
+
+    /**
+     * 直接指定根目录（测试与「换存储位置」用）。
+     *
+     * <p>拆出这个构造是为了让工具的读写逻辑能在纯 JVM 单测里跑真文件：
+     * 「改文件失败时原文件必须不动」这类约定只有真的碰盘才验得出来。
+     */
+    public Workspace(File rootDir) {
+        root = rootDir;
         //noinspection ResultOfMethodCallIgnored
         root.mkdirs();
     }

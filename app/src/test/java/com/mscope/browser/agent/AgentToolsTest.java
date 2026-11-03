@@ -2,6 +2,7 @@ package com.mscope.browser.agent;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import com.mscope.browser.i18n.Lang;
@@ -83,8 +84,35 @@ public class AgentToolsTest {
         assertFalse(noWeb.contains("web_search"));
         assertFalse(noWeb.contains("fetch_url"));
 
+        // 全关时剩下的都是「不碰外部状态」的工具（计算、时间、检索…）：
+        // 它们不联网、不改文件，关掉也没理由不给模型用。
         String bare = AgentTools.describe(false, false, false);
-        assertEquals("", bare.trim());
+        assertFalse(bare.contains("web_search"));
+        assertFalse(bare.contains("read_file"));
+        assertFalse(bare.contains("shell"));
+        assertTrue(bare, bare.contains("calc"));
+        assertTrue(bare, bare.contains("now"));
+        // 解析器与提示词必须用同一份清单
+        for (String name : AgentTools.enabled(false, false, false)) {
+            assertTrue("提示词里缺少已启用的工具：" + name, bare.contains(name + "：")
+                    || bare.contains(name + ":"));
+        }
+    }
+
+    /** 新加的工具必须都进了 schema 表，否则提示词里永远看不到它。 */
+    @Test
+    public void everyEnabledToolHasSchema() {
+        for (String name : AgentTools.enabled(true, true, true)) {
+            assertNotNull("缺少 schema：" + name, com.mscope.browser.core.ToolSchemas.get(name));
+        }
+    }
+
+    /** 危险工具必须与 schema 表一致：界面确认弹窗靠它决定弹不弹。 */
+    @Test
+    public void riskyMatchesSchema() {
+        for (com.mscope.browser.core.ToolSchemas.Spec sp : com.mscope.browser.core.ToolSchemas.all()) {
+            assertEquals(sp.name, sp.risky, AgentTools.risky(sp.name));
+        }
     }
 
     @Test

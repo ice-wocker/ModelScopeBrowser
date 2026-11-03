@@ -4,6 +4,9 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 
+import com.mscope.browser.core.Bench;
+import com.mscope.browser.core.LoopBreaker;
+import com.mscope.browser.core.PerfAdvisor;
 import com.mscope.browser.core.TextKit;
 import com.mscope.browser.i18n.Lang;
 import com.mscope.browser.local.LocalModel;
@@ -31,6 +34,16 @@ public class LlamaEngine {
 
     /** 流式回调合并间隔：太小会让 UI 与推理抢 CPU，太大影响「逐字」手感。 */
     private static final long UI_FLUSH_MS = 40;
+
+    /**
+     * 最近一次实测解速（tok/s），跨会话保存在内存里。
+     *
+     * <p>不做持久化是有意的：速度跟设备状态、模型、上下文都相关，
+     * 隔天复用一次旧数字比不给更糟 —— 冷启动慢、热起来快，是同一台手机上常见的现象。
+     */
+    private volatile double lastTps = 0;
+    /** 是否按实测速度自动调采样参数（用户手动设过温度/输出上限时自动关闭）。 */
+    private volatile boolean adaptive = true;
 
     public static class Params {
         /** 单次回复的最大生成长度。默认给到 4096，长文/代码基本够用。 */
@@ -198,6 +211,61 @@ public class LlamaEngine {
         }
     }
 
+    /** 最近一次实测解码速度（tok/s），0 表示还没测过。 */
+    public double lastTokensPerSec() {
+        return lastTps;
+    }
+
+    /** 开关「按实测速度调参数」。 */
+    public void setAdaptive(boolean on) {
+        adaptive = on;
+    }
+
+    public boolean adaptive() {
+        return adaptive;
+    }
+
+    /**
+     * 把用户给的参数收敛成「这台机器现在能跑得动」的参数。
+     *
+     * <p>为什么要动它：采样参数一旦越界就是静默失效 —— top-p 给 0 会让采样器除零，
+     * top-k 给 0 直接崩，输出上限大于上下文则必然被截断。这些都不会弹错误，
+     * 只会表现为「模型变笨了」。所以写入引擎前统一过一遍 {@link PerfAdvisor}。
+     */
+    public Params fit(Params p, int nCtx) {
+        Params src = p == null ? new Params() : p;
+        if (!adaptive) {
+            PerfAdvisor.Sample s = PerfAdvisor.sanitize(
+                    new PerfAdvisor.Sample(src.temp, src.topP, src.topK, src.maxTokens,
+                            src.repeatPenalty, src.repeatLastN), nCtx, 0);
+            Params out = new Params();
+            out.temp = s.temp;
+            out.topP = s.topP;
+            out.topK = s.topK;
+            out.maxTokens = s.maxTokens;
+            out.repeatPenalty = s.repeatPenalty;
+            out.repeatLastN = s.repeatLastN;
+            out.seed = src.seed;
+            return out;
+        }
+        PerfAdvisor.Sample s = PerfAdvisor.advise(lastTps, nCtx, src.temp, src.maxTokens);
+        Params out = new Params();
+        out.temp = s.temp;
+        out.topP = s.topP;
+        out.topK = s.topK;
+        out.maxTokens = s.maxTokens;
+        out.repeatPenalty = s.repeatPenalty;
+        out.repeatLastN = s.repeatLastN;
+        out.seed = src.seed;
+        return out;
+    }
+
+    /** 给界面看：当前建议参数的一句话解释。 */
+    public String advice(boolean zh) {
+        PerfAdvisor.Sample s = PerfAdvisor.advise(lastTps, contextSize(), -1, 0);
+        return PerfAdvisor.explain(lastTps, s, zh);
+    }
+
     /* ------------------------------------------------------------- 模型生命周期 */
 
     /**
@@ -344,7 +412,8 @@ public class LlamaEngine {
         }
 
         final List<ChatMessage> input = new ArrayList<>(messages);
-        final Params p = params == null ? new Params() : params;
+        // 采样参数在这里统一收敛一次：越界值不会报错，只会让输出莫名变差
+        final Params p = fit(params, contextSize());
         final int seed = p.seed >= 0 ? p.seed : (int) (System.nanoTime() & 0x7fffffff);
 
         worker.execute(() -> {
@@ -374,6 +443,10 @@ public class LlamaEngine {
                 // 回调里拿不到 nativeGenerate 的返回值（它要等整段生成结束才返回），
                 // 所以这里用回调自己累积的文本判复读，不能引用 full。
                 final StringBuilder sofar = new StringBuilder();
+                // 内容级熔断：字节层面还在涨（有 token 产出），但内容是同一段话反复。
+                // 这里按「距上次检查产出了多少字」触发，代价可忽略。
+                final int[] sinceCheck = {0};
+                final boolean[] contentStuck = {false};
                 String full = LlamaBridge.nativeGenerate(h, roles, contents,
                         p.maxTokens, p.temp, p.topP, p.topK, seed,
                         p.repeatLastN, p.repeatPenalty, piece -> {
@@ -387,6 +460,22 @@ public class LlamaEngine {
                                 emit(buf, listener);
                             }
                             since[0]++;
+                            sinceCheck[0]++;
+                            // 每 96 个 token 做一次内容级检查：换着花样重复同一段话，
+                            // 「字节是否增长」这条路抓不到，只能看内容本身。
+                            if (!stuck[0] && !contentStuck[0] && sinceCheck[0] >= 96) {
+                                sinceCheck[0] = 0;
+                                if (LoopBreaker.check(sofar).looping) {
+                                    contentStuck[0] = true;
+                                    stuck[0] = true;
+                                    worker.execute(() -> {
+                                        try {
+                                            LlamaBridge.nativeCancel(h);
+                                        } catch (Throwable ignored) {
+                                        }
+                                    });
+                                }
+                            }
                             if (!stuck[0] && since[0] >= LOOP_SAMPLES
                                     && isStuck(sofar, seenTail, seenLen, firstSeenAt, now)) {
                                 // 立刻打断：等它自己跑完 maxTokens 才收手，用户要多等几十秒
@@ -412,6 +501,7 @@ public class LlamaEngine {
                 final String text = full == null ? "" : full;
 
                 generating = false;
+                if (tps > 0) lastTps = lastTps <= 0 ? tps : lastTps * 0.7 + tps * 0.3;
                 if (stuck[0]) Log.w(TAG, "检测到复读，已提前收尾");
                 ui.post(() -> listener.onDone(text, nTokens, end - start, prefillMs, tps));
             } catch (Throwable t) {
@@ -420,6 +510,61 @@ public class LlamaEngine {
                 ui.post(() -> listener.onError(String.valueOf(t.getMessage())));
             }
         });
+    }
+
+    /**
+     * 跑一次端侧基准（阻塞，调用方应在后台线程）。
+     *
+     * <p>用固定的两个用例：短输入测冷启动/解码，长输入测预填充。
+     * 每轮都走完整的生成路径，所以测出来的数字就是用户实际能感知的速度。
+     *
+     * @return 每个用例一条结果；模型没加载时返回空列表
+     */
+    public List<Bench.Result> runBench(boolean zh) {
+        final List<Bench.Result> out = new ArrayList<>();
+        final long h = handle;
+        if (h == 0) return out;
+        final int nCtx = contextSize();
+        for (Bench.Case c : Bench.cases(zh)) {
+            final long[] done = {0};
+            final java.util.List<Bench.Result> box = new ArrayList<>();
+            final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+            Params p = new Params();
+            p.maxTokens = c.maxTokens;
+            p.temp = 0.3f;
+            p.seed = 42;
+            List<ChatMessage> msgs = new ArrayList<>();
+            msgs.add(new ChatMessage(ChatMessage.USER, c.prompt));
+            generate(msgs, p, new StreamListener() {
+                @Override
+                public void onToken(String piece) {
+                }
+
+                @Override
+                public void onDone(String fullText, int tokens, long elapsedMs, long prefillMs, double tokensPerSec) {
+                    box.add(new Bench.Result(c.name, prefillMs, Math.max(1, elapsedMs - prefillMs),
+                            tokens, tokensPerSec));
+                    latch.countDown();
+                }
+
+                @Override
+                public void onError(String message) {
+                    latch.countDown();
+                }
+            });
+            try {
+                latch.await(150, java.util.concurrent.TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+            if (box.isEmpty()) continue;
+            out.addAll(box);
+            if (out.get(out.size() - 1).tps > 0) {
+                lastTps = out.get(out.size() - 1).tps;
+            }
+        }
+        return out;
     }
 
     /** 复读判定用的尾巴长度：太短会把正常重复（表格、缩进）当成故障。 */

@@ -7,7 +7,7 @@ One section per module, covering three things: **what it solves**, **how it does
 logic in this repo without reading all the source first.
 
 Contents:
-[1 ModelApi](#1-modelapi--api-and-degradation) · [2 DownloadCenter](#2-downloadcenter--downloads-and-resume) · [3 LocalModelStore](#3-localmodelstore--index-and-atomic-writes) · [4 Workspace](#4-workspace--path-convergence) · [5 Shell](#5-shell--a-real-shell) · [6 ToolCall](#6-toolcall--protocol-parsing) · [7 AgentTools](#7-agenttools--tool-execution) · [8 WebSearch](#8-websearch--web-search) · [9 LlamaEngine](#9-llamaengine--session-management) · [10 llama_bridge](#10-llama_bridgecpp--the-jni-bridge) · [11 ChatActivity](#11-chatactivity--the-chat-screen) · [12 MemoryBudget](#12-memorybudget--context-budget) · [13 StorageGuard](#13-storageguard--storage-health-check) · [14 FsKit](#14-fskit--file-operations) · [15 Validators](#15-validators--input-convergence) · [16 PromptTemplate](#16-prompttemplate--prompts) · [17 TextKit](#17-textkit--text-utilities) · [18 PerfStats](#18-perfstats--performance-stats) · [19 MarkdownOutline](#19-markdownoutline--outline) · [20 ToolGuard](#20-toolguard--anti-spin-gate)
+[1 ModelApi](#1-modelapi--api-and-degradation) · [2 DownloadCenter](#2-downloadcenter--downloads-and-resume) · [3 LocalModelStore](#3-localmodelstore--index-and-atomic-writes) · [4 Workspace](#4-workspace--path-convergence) · [5 Shell](#5-shell--a-real-shell) · [6 ToolCall](#6-toolcall--protocol-parsing) · [7 AgentTools](#7-agenttools--tool-execution) · [8 WebSearch](#8-websearch--web-search) · [9 LlamaEngine](#9-llamaengine--session-management) · [10 llama_bridge](#10-llama_bridgecpp--the-jni-bridge) · [11 ChatActivity](#11-chatactivity--the-chat-screen) · [12 MemoryBudget](#12-memorybudget--context-budget) · [13 StorageGuard](#13-storageguard--storage-health-check) · [14 FsKit](#14-fskit--file-operations) · [15 Validators](#15-validators--input-convergence) · [16 PromptTemplate](#16-prompttemplate--prompts) · [17 TextKit](#17-textkit--text-utilities) · [18 PerfStats](#18-perfstats--performance-stats) · [19 MarkdownOutline](#19-markdownoutline--outline) · [20 ToolGuard](#20-toolguard--anti-spin-gate) · [21 Rounds](#21-rounds--per-turn-budget) · [22 ToolSchemas](#22-toolschemas--one-source-of-truth) · [23 Journal](#23-journal--work-log) · [24 Memory](#24-memory--long-term-facts) · [25 KbIndex](#25-kbindex--workspace-retrieval) · [26 Patcher](#26-patcher--applying-diffs) · [27 PerfAdvisor](#27-perfadvisor--adaptive-sampling) · [28 LoopBreaker](#28-loopbreaker--content-level-loop-breaking) · [29 Calc](#29-calc--deterministic-arithmetic)
 
 ## 1 ModelApi · API and degradation
 
@@ -822,3 +822,129 @@ Blocking at one would break the most ordinary workflow.
 A `write_file` payload can be tens of thousands of characters. The fingerprint keeps only the first
 `MAX_ARGS` characters, **cut on a character boundary** (never splitting a surrogate pair): dedup does
 not need the whole text, but the key still has to be readable.
+
+## 21 Rounds · per-turn budget
+
+**Problem**: `MAX_ROUNDS = 8` was hard-coded. Eight was never a safety boundary, just a number;
+"read → edit → verify" already takes three steps, so anything with a bit of exploration hits the
+cap and the user is told "limit reached" with the work half done.
+
+### 21.1 Why three limits instead of one
+
+| Limit | Trigger | Why it must exist |
+|---|---|---|
+| Steps | `round + 1 >= budget.rounds` | stops a model that keeps spinning |
+| Wall clock | `now - startedAt >= limitMs` | more steps must never mean minutes of silence |
+| Context | `ctxUse >= 0.95` | one more round only pushes out the earliest content |
+
+Steps alone are not enough: a stuck `shell` can burn 60 s per step. Time alone is not enough either:
+a `list_files` takes 20 ms, so a time budget would allow hundreds of idle rounds.
+
+### 21.2 The stop message must name the limit
+
+`stopMessage()` says a different thing per cause: steps left → "say continue or split the goal";
+time → "here is the conclusion so far"; context → "start a new chat or ask me to summarise".
+Just saying "limit reached" tells the user nothing.
+
+### 21.3 Idle rounds are subtler than repeats
+
+`ToolGuard` used to catch only "the same call again". The more common failure is **querying in
+different ways**: `read_file` → `list_files` → `kb_search` → `read_file`, every call legal and
+distinct, and nothing is ever written. `markIdleRound()` ends the turn after three read-only rounds;
+any risky tool resets the counter via `markProgress()`.
+
+## 22 ToolSchemas · one source of truth
+
+**Problem**: tool docs used to be hand-written prose the prompt could read but the program could not.
+Emitting an OpenAI-compatible `tools` array meant writing a second copy, and one drift gives you a
+prompt that advertises a tool that cannot run — silently.
+
+Three renderings, one `ALL` table: `describe()` for the prompt, `toJson()` for the API array,
+`names()` for the parser whitelist. `AgentToolsTest.everyEnabledToolHasSchema()` fails if a tool is
+enabled without a schema entry.
+
+### 22.1 Why hand-rolled JSON
+
+This class must run in a plain JVM test, and Android's `org.json` is an empty shell there (any call
+throws). Hand-rolling also means the escaping (`"`, `\`, `\n`, control chars) is explicit.
+
+## 23 Journal · work log
+
+**Problem**: once the context is trimmed the model forgets what it did, re-reads the same file, or
+undoes its own fix.
+
+It is an **external, on-demand** log (`journal_read`), so it costs nothing in the resident context
+and cannot be trimmed away. Only `summary()` — two or three lines — goes into the prompt.
+
+Two details that bite: results are clipped to the first line, and **both arguments and results are
+redacted**. A real test caught this: the result was `<redacted:github>` while the argument still
+carried the token verbatim.
+
+## 24 Memory · long-term facts
+
+**Problem**: remembering a user across chats. The risk is not forgetting, it is remembering too hard.
+
+Format is `id|timestamp|fact`. `Memory.add()` treats Jaccard similarity ≥0.6 as "the same thing" and
+**updates** instead of appending — otherwise after a month you get "user likes short answers" next to
+"user likes detailed answers" and the model has to guess which one counts.
+
+No vectors: an embedding model means another `.so`, more memory, more cold-start, and memory is
+usually a few dozen one-line facts. BM25 plus bigrams is enough. Vector search earns its keep on
+semantic near-misses; for those, asking the model to rewrite the query is cheaper.
+
+`MAX_FACTS = 120`, oldest dropped first. Memory is what is currently true, not an archive.
+
+## 25 KbIndex · workspace retrieval
+
+A 40KB log is tens of thousands of tokens; the model wants the one line that failed.
+`Retriever.chunk()` slides a window **by lines** (900 chars, 2 lines of overlap) and keeps
+`file#Lnnn` as the source, because in code and logs a line is usually one semantic unit.
+
+### 25.1 Why CJK needs bigrams
+
+Splitting Chinese per character makes "内存" become "内" and "存", two very common characters, so
+each matches half the corpus. Bigrams ("内存"/"存不"/"不足") keep word boundaries without a dictionary.
+
+### 25.2 Incremental rebuild
+
+`build(force)` compares `lastModified` and reuses chunks for untouched files. A full re-chunk is
+tens of milliseconds — fine once, too slow on every keystroke.
+
+## 26 Patcher · applying diffs
+
+`write_file` overwrites, so changing one line in a 20KB file means reproducing the other 19.9KB;
+truncate the output and the original is destroyed.
+
+Four rules: anchors must match literally (line numbers are hints — models are often a few lines
+off); multiple matches are rejected with candidate line numbers; only pure insertions may fall back
+to the hinted line; all hunks are computed in memory before anything is written.
+
+### 26.1 A lesson from the first implementation
+
+It concatenated context plus deleted lines into one big block and searched for it. That only works
+when the lines are adjacent in the file; with an unmentioned line in between it never matches, and
+the error points at the wrong place. Now it locates the anchor sequence, then rewrites that span
+line by line.
+
+## 27 PerfAdvisor · adaptive sampling
+
+Four tiers from measured decode speed: slow (<4 tok/s) gets lower temperature and a shorter cap;
+fast (>12) gets more room and wider sampling. Legality is always enforced — `top-p` of 0 divides by
+zero, `top-k` of 0 crashes, a NaN temperature poisons the logit chain. None of these raise an error;
+they just make the model look dumb.
+
+## 28 LoopBreaker · content-level loop breaking
+
+`isStuck()` catches "no new bytes for seconds". It does not catch the same sentence rewritten with a
+few words changed, which is the most common bad output at small context sizes. Within a 1200-char
+window, a ≥16-char segment appearing ≥3 times is a loop. The threshold is deliberately loose:
+code blocks, tables and lists repeat naturally, and **a missed detection beats a false kill**.
+
+## 29 Calc · deterministic arithmetic
+
+Small local models get three-digit multiplication wrong, and the output looks completely normal —
+only the number is wrong. A recursive-descent evaluator handles `+ - * / % ^ ()`, unary minus,
+`pi`/`e`, `sqrt()`, and right-associative powers.
+
+The `%` detail: `10%3` is modulo, `15%` is fifteen percent. It is treated as modulo only when a
+digit or `(` follows, so "up by 15%" is not evaluated as "15 divided by 1".
