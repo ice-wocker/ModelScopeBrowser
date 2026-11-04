@@ -1,0 +1,110 @@
+plugins {
+    alias(libs.plugins.android.application)
+}
+
+android {
+    namespace 'com.mscope.browser'
+    compileSdk 36
+    buildToolsVersion = "36.0.0"
+    ndkVersion "27.2.12479018"
+
+    defaultConfig {
+        applicationId "com.mscope.browser"
+        minSdk 24
+        targetSdk 36
+        versionCode 17
+        // 命名：这批能力（原生工具调用 + 可选步数预算、工作日志、检索索引、长期记忆、
+        // 自适应采样、内容级熔断）都是新东西，按 alpha 发，不用 2.x 假装成熟。
+        versionName "alpha 1.0"
+
+        ndk {
+            // 只打包真机常见 ABI，控制 APK 体积与编译时间
+            abiFilters "arm64-v8a", "armeabi-v7a"
+        }
+
+        externalNativeBuild {
+            cmake {
+                // 本地已有 llama.cpp 源码时可用 -PllamaCppDir=/path 加速；
+                // 否则 CMake 会按固定 tag 通过 FetchContent 拉取
+                arguments "-DLLAMA_CPP_DIR=" + (project.findProperty("llamaCppDir") ?: "")
+                cppFlags "-O3"
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path file("src/main/cpp/CMakeLists.txt")
+            version "3.22.1"
+        }
+    }
+
+    def keystoreProps = rootProject.file("keystore.properties")
+    signingConfigs {
+        release {
+            if (keystoreProps.exists()) {
+                def p = new Properties()
+                keystoreProps.withInputStream { p.load(it) }
+                storeFile rootProject.file(p['storeFile'])
+                storePassword p['storePassword']
+                keyAlias p['keyAlias']
+                keyPassword p['keyPassword']
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            applicationIdSuffix ""
+        }
+        release {
+            // R8 混淆 + 资源压缩：规则见 proguard-rules.pro（保留了 JNI 与反射相关符号）
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig keystoreProps.exists() ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    packaging {
+        jniLibs {
+            // 必须把 .so 释放到 nativeLibraryDir：arm64 的多档指令集后端（libggml-cpu-*.so）
+            // 是运行时按路径 dlopen 的（ggml_backend_load_all_from_path），而 extractNativeLibs=false
+            // 时这些文件只存在于 APK 内、磁盘上没有，会导致一个后端都注册不上、模型加载失败。
+            useLegacyPackaging = true
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        abortOnError true
+        checkReleaseBuilds true
+        // 这些检查对本项目意义不大/误报多，关掉以免阻断构建
+        disable 'GoogleAppIndexingWarning'
+        // 双语是硬要求：values（英文）与 values-zh 必须逐条对齐，
+        // MissingTranslation 堵漏译、ExtraTranslation 堵多余项，两个都不能关。
+    }
+
+    testOptions {
+        // 单元测试只覆盖纯逻辑；碰到 Android 桩方法时返回默认值而不是抛异常
+        unitTests.returnDefaultValues = true
+    }
+}
+
+dependencies {
+    implementation libs.androidx.appcompat
+    implementation libs.androidx.core
+    implementation libs.material
+    implementation libs.androidx.recyclerview
+    implementation libs.androidx.swiperefreshlayout
+    implementation libs.markwon
+    implementation libs.markwon.tables
+    implementation libs.markwon.strikethrough
+
+    testImplementation libs.junit
+    testImplementation libs.org.json
+}

@@ -1,0 +1,225 @@
+package com.mscope.browser.agent;
+
+import com.mscope.browser.core.HttpKit;
+import com.mscope.browser.core.Validators;
+import com.mscope.browser.i18n.Lang;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLDecoder;
+import java.net.URLEncoder;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * 开关式联网检索：抓取公开搜索结果页并解析出标题 / 链接 / 摘要。
+ *
+ * <p>不依赖任何 API Key，开箱即用。主用 DuckDuckGo 的轻量 HTML 版（结构简单、无反爬跳转），
+ * 失败时退回 Bing 网页结果。两个来源都失败会抛异常，由调用方提示用户。
+ */
+public class WebSearch {
+
+    public static class Result {
+        public final String title;
+        public final String url;
+        public final String snippet;
+
+        public Result(String title, String url, String snippet) {
+            this.title = title;
+            this.url = url;
+            this.snippet = snippet;
+        }
+    }
+
+    private static final String UA =
+            "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 "
+                    + "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
+
+    private static final Pattern DDG_ITEM = Pattern.compile(
+            "class=\"result__a\"[^>]*href=\"([^\"]+)\"[^>]*>(.*?)</a>", Pattern.DOTALL);
+    private static final Pattern DDG_SNIPPET = Pattern.compile(
+            "class=\"result__snippet\"[^>]*>(.*?)</a>", Pattern.DOTALL);
+    private static final Pattern BING_ITEM = Pattern.compile(
+            "<h2><a[^>]*href=\"(https?://[^\"]+)\"[^>]*>(.*?)</a></h2>", Pattern.DOTALL);
+    private static final Pattern BING_SNIPPET = Pattern.compile(
+            "<p[^>]*class=\"b_lineclamp[^\"]*\"[^>]*>(.*?)</p>", Pattern.DOTALL);
+
+    private WebSearch() {
+    }
+
+    /** 检索关键词，返回最多 limit 条结果（可能为空列表）。 */
+    public static List<Result> search(String query, int limit) throws IOException {
+        IOException last = null;
+        try {
+            List<Result> r = parseDdg(fetch("https://html.duckduckgo.com/html/?q="
+                    + URLEncoder.encode(query, "UTF-8")), limit);
+            if (!r.isEmpty()) return r;
+        } catch (IOException e) {
+            last = e;
+        }
+        try {
+            // setlang 决定 Bing 结果页的语言；跟随界面语言，别让英文用户拿到中文摘要
+            List<Result> r = parseBing(fetch("https://www.bing.com/search?q="
+                    + URLEncoder.encode(query, "UTF-8")
+                    + (Lang.zh() ? "&setlang=zh-CN" : "&setlang=en-US")), limit);
+            if (!r.isEmpty()) return r;
+        } catch (IOException e) {
+            last = e;
+        }
+        if (last != null) throw last;
+        return new ArrayList<>();
+    }
+
+    /** 把结果整理成 markdown，既用于注入模型上下文，也用于界面上的工具卡片。 */
+    public static String format(List<Result> results) {
+        if (results == null || results.isEmpty()) {
+            return Lang.zh() ? "（没有检索到结果）" : "(no results)";
+        }
+        StringBuilder sb = new StringBuilder();
+        int i = 1;
+        for (Result r : results) {
+            sb.append(i++).append(". **").append(r.title).append("**\n")
+              .append("   ").append(r.snippet).append("\n")
+              .append("   ").append(r.url).append("\n");
+        }
+        return sb.toString().trim();
+    }
+
+    /** 抓取一个网页并抽成纯文本，供 fetch_url 工具使用；过长会截断。 */
+    public static String fetchPage(String url, int maxChars) throws IOException {
+        // 抓回来的正文会原样回灌进模型上下文，所以按「完整字符」截断，
+        // 不能把 emoji / 生僻字切成半个 surrogate。
+        String safe = Validators.safeUrl(url);
+        if (safe == null) {
+            return Lang.zh() ? "错误：url 必须是 http/https 开头的完整地址"
+                    : "error: url must be a full address starting with http/https";
+        }
+        String text = text(fetch(safe));
+        if (text.isEmpty()) {
+            return Lang.zh() ? "（页面没有可读文本，可能是纯脚本或需要登录的页面）"
+                    : "(no readable text: the page may be script-only or require sign-in)";
+        }
+        if (text.length() > maxChars) {
+            text = com.mscope.browser.core.TextKit.trimUtf8(text, maxChars * 3)
+                    + (Lang.zh() ? "\n…（内容过长，已截断）" : "\n… (truncated: too long)");
+        }
+        return text;
+    }
+
+    /**
+     * 网页抓取前的礼貌判定：不抓本机/内网地址。
+     *
+     * <p>抓取目标是模型给的，本地模型完全可能写出 {@code http://localhost:8080/...}
+     * 去探测用户手机上的服务；这条链路不该被放开。
+     */
+    public static boolean allowedForFetch(String url) {
+        String safe = Validators.safeUrl(url);
+        if (safe == null) return false;
+        String host = Validators.hostOf(safe);
+        if (host.isEmpty()) return false;
+        return !Validators.isPrivateHost(host);
+    }
+
+    /* ------------------------------------------------------------------ 实现 */
+
+    /** 这两个工具跑在智能体线程上，而「停止」只能到下一次回调才生效，所以超时必须短。 */
+    private static final int CONNECT_TIMEOUT_MS = 8000;
+    private static final int READ_TIMEOUT_MS = 12000;
+    /** 单个网页最多读多少字节（搜索结果页通常 100~400KB）。 */
+    private static final int MAX_HTML_BYTES = 3 * 1024 * 1024;
+
+    private static String fetch(String url) throws IOException {
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+        try {
+            c.setRequestMethod("GET");
+            c.setConnectTimeout(CONNECT_TIMEOUT_MS);
+            c.setReadTimeout(READ_TIMEOUT_MS);
+            c.setInstanceFollowRedirects(true);
+            c.setRequestProperty("User-Agent", UA);
+            c.setRequestProperty("Accept", "text/html,application/xhtml+xml");
+            c.setRequestProperty("Accept-Language", Lang.zh()
+                    ? "zh-CN,zh;q=0.9,en;q=0.8"
+                    : "en-US,en;q=0.9");
+            int code = c.getResponseCode();
+            InputStream is = code >= 400 ? c.getErrorStream() : c.getInputStream();
+            if (is == null) throw new IOException("HTTP " + code);
+            // 直接按字节限长读：原来的按行循环 + guard 只挡行数，一行几 MB 的压缩页照样能吃满内存。
+            String html = HttpKit.readLimited(is, MAX_HTML_BYTES);
+            if (code >= 400) throw new IOException("HTTP " + code);
+            return html;
+        } finally {
+            c.disconnect();
+        }
+    }
+
+    private static List<Result> parseDdg(String html, int limit) {
+        List<Result> out = new ArrayList<>();
+        Matcher m = DDG_ITEM.matcher(html);
+        List<String> snippets = all(DDG_SNIPPET, html);
+        int i = 0;
+        while (m.find() && out.size() < limit) {
+            String url = cleanUrl(m.group(1));
+            String title = text(m.group(2));
+            String snip = i < snippets.size() ? text(snippets.get(i)) : "";
+            i++;
+            if (url.isEmpty() || title.isEmpty()) continue;
+            out.add(new Result(title, url, snip));
+        }
+        return out;
+    }
+
+    private static List<Result> parseBing(String html, int limit) {
+        List<Result> out = new ArrayList<>();
+        Matcher m = BING_ITEM.matcher(html);
+        List<String> snippets = all(BING_SNIPPET, html);
+        int i = 0;
+        while (m.find() && out.size() < limit) {
+            String url = m.group(1);
+            String title = text(m.group(2));
+            String snip = i < snippets.size() ? text(snippets.get(i)) : "";
+            i++;
+            if (title.isEmpty()) continue;
+            out.add(new Result(title, url, snip));
+        }
+        return out;
+    }
+
+    private static List<String> all(Pattern p, String s) {
+        List<String> out = new ArrayList<>();
+        Matcher m = p.matcher(s);
+        while (m.find()) out.add(m.group(1));
+        return out;
+    }
+
+    /** DDG 的结果链接常带 uddg 跳转参数，取出真实地址。 */
+    private static String cleanUrl(String href) {
+        String h = href;
+        if (h.startsWith("//")) h = "https:" + h;
+        int i = h.indexOf("uddg=");
+        if (i >= 0) {
+            String enc = h.substring(i + 5);
+            int amp = enc.indexOf('&');
+            if (amp >= 0) enc = enc.substring(0, amp);
+            try {
+                return URLDecoder.decode(enc, "UTF-8");
+            } catch (Exception ignored) {
+            }
+        }
+        return h;
+    }
+
+    /** 去标签 + 解码常见实体。 */
+    private static String text(String raw) {
+        if (raw == null) return "";
+        String s = raw.replaceAll("<[^>]+>", " ");
+        s = s.replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<")
+             .replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'")
+             .replace("&#x27;", "'").replace("&hellip;", "…");
+        s = s.replaceAll("\\s+", " ").trim();
+        return s;
+    }
+}

@@ -1,0 +1,74 @@
+name: Deploy site
+
+# 把 data/projects.py 渲染成静态站点并发布到 GitHub Pages。
+# 站点是清单的投影，唯一真相源是 data/projects.py。
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'data/**'
+      - 'scripts/**'
+      - '.github/workflows/deploy.yml'
+  # 对方仓库发新版时也可以直接触发一次发布（sync.yml 负责改数据，
+  # 这里负责「发版了就让页面立刻是新的」，两条路径都幂等，重复跑无害）。
+  repository_dispatch:
+    types: [release, sync]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages          # 同时只跑一个发布，避免两个 commit 抢 Pages 锁
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Build static site
+        run: python3 scripts/build_site.py
+      - name: Assert output
+        run: |
+          for f in index.html store.html tags.html changes.html search.json CNAME 404.html \
+                   sitemap.xml robots.txt feed.xml icon.svg style.css update.json; do
+            test -f "site/$f" || { echo "缺少产物 $f"; exit 1; }
+          done
+          grep -q 'icesuite.eu.org' site/CNAME
+          pages=$(find site -name '*.html' | wc -l)
+          echo "生成 HTML 页面数: $pages"
+          test "$pages" -ge 15
+          n=$(grep -o 'data-apk="' site/store.html | wc -l)
+          echo "商店页可下载: $n"
+          test "$n" -ge 8
+      # 发布前再跑一次自检：宁可不上线，也不让坏产物出去
+      - name: Self check
+        run: python3 scripts/check_site.py
+      # 快照过期就拒绝发布：这是自动更新链路唯一的对外承诺。
+      # 只警告不阻断——GitHub API 抖动 / 限流时把人挡在发布之外，
+      # 代价比「页面上的版本晚一小时」大得多。真正的收敛由 sync.yml 定时完成。
+      - name: Warn if snapshot is behind upstream
+        continue-on-error: true
+        run: |
+          python3 scripts/fetch_releases.py --check || \
+            echo "::warning::data/releases.json 落后于线上 Release，下一次 sync.yml 会补上"
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

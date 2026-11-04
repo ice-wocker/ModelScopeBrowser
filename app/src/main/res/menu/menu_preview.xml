@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item
+        android:id="@+id/action_reload"
+        android:title="@string/preview_reload"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_desktop"
+        android:title="@string/preview_desktop"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_open_browser"
+        android:title="@string/preview_open_browser"
+        app:showAsAction="never" />
+</menu>

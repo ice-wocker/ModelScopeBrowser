@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- Android 13+ 展示下载进度通知需要；未授权时不影响下载本身 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@drawable/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:usesCleartextTraffic="false"
+        android:theme="@style/Theme.MScope">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".DetailActivity"
+            android:exported="false"
+            android:label="@string/detail_title" />
+
+        <activity
+            android:name=".WebActivity"
+            android:exported="false"
+            android:label="@string/web_title"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
+        <activity
+            android:name=".local.LocalModelsActivity"
+            android:exported="false"
+            android:label="@string/local_title" />
+
+        <activity
+            android:name=".llama.ChatActivity"
+            android:exported="false"
+            android:label="@string/chat_title"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
+        <!-- 下载期间的前台服务：让大文件在应用退到后台时也继续下载 -->
+        <service
+            android:name=".local.DownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!-- 智能体：工作区文件管理 -->
+        <activity
+            android:name=".agent.WorkspaceActivity"
+            android:exported="false"
+            android:label="@string/workspace_title" />
+
+        <!-- 智能体：本机工作区终端 -->
+        <activity
+            android:name=".agent.TerminalActivity"
+            android:exported="false"
+            android:label="@string/term_title"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
+        <!-- 智能体：生成的 HTML 本地预览 -->
+        <activity
+            android:name=".agent.HtmlPreviewActivity"
+            android:exported="false"
+            android:label="@string/preview_title"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
+        <!-- 分享工作区文件用 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+    </application>
+
+</manifest>

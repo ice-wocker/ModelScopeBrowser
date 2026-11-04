@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- 只暴露应用私有工作区，用于 FileProvider 分享/打开文件 -->
+    <files-path
+        name="workspace"
+        path="workspace/" />
+</paths>

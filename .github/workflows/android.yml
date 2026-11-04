@@ -1,0 +1,189 @@
+name: Android CI
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      build_abi:
+        description: '要打包的 ABI（逗号分隔，留空=全部）'
+        required: false
+        default: ''
+
+# 同一分支的新推送取消旧的运行，避免排队浪费
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  # ---------------------------------------------------------------- 静态检查
+  # 先跑最便宜的检查：单测 + Lint。它们几秒钟就能给出结论，
+  # 不必等 40 分钟的 native 编译跑完才发现一个格式错误。
+  verify:
+    name: 单元测试 + Lint
+    # 钉版本：代码里写了 buildToolsVersion "36.0.0"，而 ubuntu-latest 预装的
+    # build-tools 会随镜像滚动，一旦对不上就要现场 sdkmanager 下载，慢且偶发失败。
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Unit tests
+        run: ./gradlew testDebugUnitTest --no-daemon --stacktrace
+
+      - name: Lint
+        run: ./gradlew lintDebug --no-daemon --stacktrace
+
+      - name: Upload test & lint reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-reports
+          path: |
+            app/build/reports/tests/**
+            app/build/reports/lint-results-debug.html
+          if-no-files-found: ignore
+
+  # ------------------------------------------------------------- 构建 APK
+  # APK 是最终交付物，单独一个 job：verify 挂了就不必浪费机时去编 native。
+  build:
+    name: 构建 APK
+    needs: verify
+    # 钉版本：代码里写了 buildToolsVersion "36.0.0"，而 ubuntu-latest 预装的
+    # build-tools 会随镜像滚动，一旦对不上就要现场 sdkmanager 下载，慢且偶发失败。
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # 镜像已预装 Android SDK；这里只补齐项目需要的 platform/build-tools/ndk/cmake。
+      # 注意：不要用 android-actions/setup-android，它会执行 `sdkmanager tools`，
+      # 而新版 cmdline-tools 已移除该 package，会导致步骤失败。
+      - name: Ensure Android SDK packages
+        run: |
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "使用 SDK: $SDK"
+          SDKMGR=$(ls "$SDK"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -1)
+          if [ -n "$SDKMGR" ]; then
+            yes | "$SDKMGR" --licenses > /dev/null 2>&1 || true
+            # NDK 27.2.12479018 与 CMake 3.22.1 是 llama.cpp 原生编译所需；
+            # 显式安装一次，避免依赖 AGP 的自动下载（CI 上偶发失败）。
+            "$SDKMGR" "platforms;android-36" "build-tools;36.0.0" \
+                       "ndk;27.2.12479018" "cmake;3.22.1" || true
+          fi
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+
+      # native 构建（llama.cpp + ggml 多档后端）是这个仓库最慢的一步，
+      # 缓存 CMake 产物目录能把二次构建从 ~40 分钟压到几分钟。
+      - name: Cache CMake/native build
+        uses: actions/cache@v4
+        with:
+          path: |
+            app/.cxx
+            ~/.gradle/caches/modules-2/files-2.1/org.llama.cpp
+          key: native-${{ runner.os }}-${{ hashFiles('app/src/main/cpp/**', 'gradle/libs.versions.toml') }}
+          restore-keys: |
+            native-${{ runner.os }}-
+
+      # 注意：secrets 不能直接用于步骤级 if 条件（会导致工作流校验失败），
+      # 因此这里注入成 env，再在脚本里判断。
+      - name: Configure release signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > ../release.keystore
+            {
+              echo "storeFile=../release.keystore"
+              echo "storePassword=$KEYSTORE_PASSWORD"
+              echo "keyAlias=$KEY_ALIAS"
+              echo "keyPassword=$KEY_PASSWORD"
+            } > keystore.properties
+            echo "已配置正式签名"
+          else
+            # 打 Tag 发布的包会直接给用户下载，必须是正式签名。
+            # 曾经因为这里静默回退成 debug 签名，导致 v1.2 的 Release 包无法覆盖安装。
+            if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+              echo "::error::发布 Release 前必须配置签名 Secrets，否则会产出 debug 签名的包，用户无法覆盖安装。请在 Settings → Secrets and variables → Actions 中配置 KEYSTORE_BASE64 / KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD。"
+              exit 1
+            fi
+            echo "::warning::未配置签名 Secrets，本次 release 为 debug 签名（仅作 CI 产物，请勿用于发布）"
+          fi
+
+      - name: Build debug APK
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Build release APK
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+
+      # 逐个校验产物：签名、ABI、版本号。签名对不上等于给用户一个
+      # 「安装失败 / 无法覆盖安装」的包，必须在流水线里就发现。
+      - name: Verify APK (签名 / ABI / 版本)
+        run: |
+          set -e
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT}}"
+          APKSIGNER=$(ls "$SDK"/build-tools/*/apksigner | head -1)
+          AAPT=$(ls "$SDK"/build-tools/*/aapt2 | head -1)
+          RELEASE=app/build/outputs/apk/release/app-release.apk
+          DEBUG=app/build/outputs/apk/debug/app-debug.apk
+          for APK in "$RELEASE" "$DEBUG"; do
+            [ -f "$APK" ] || { echo "::error::缺少产物 $APK"; exit 1; }
+            echo "== $APK ($(du -h "$APK" | cut -f1))"
+            "$APKSIGNER" verify --print-certs "$APK" | head -5
+            "$AAPT" dump badging "$APK" | grep -E "^package|native-code" || true
+          done
+          # Release 包若在 tag 上构建，必须不是 debug 签名
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            if "$APKSIGNER" verify --print-certs "$RELEASE" | grep -qi "Android Debug"; then
+              echo "::error::tag 构建出的 release 包是 debug 签名，不能发布"
+              exit 1
+            fi
+          fi
+          ls -la app/build/outputs/apk/*/*.apk
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v7
+        with:
+          name: apk
+          path: app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+
+      # 仅在推送 v* 标签时自动发布 Release
+      - name: Rename release APK
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: cp app/build/outputs/apk/release/app-release.apk "ModelScope-Models-${GITHUB_REF_NAME#v}.apk"
+
+      - name: Publish to Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: ModelScope-Models-*.apk
+          generate_release_notes: true
+          draft: false

@@ -1,0 +1,29 @@
+# Gradle
+.gradle/
+build/
+
+# 构建产物：不入库，走 GitHub Release 分发
+# （dist/ 下曾跟踪 5 个历史 APK 共 69MB，克隆一次疼一次）
+dist/
+*.apk
+*.apk.idsig
+*.dex
+
+# Android Studio / IDEA
+.idea/
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+
+# 本机 SDK 路径（不应提交）
+local.properties
+
+# 签名文件与口令（严禁提交）
+*.jks
+*.keystore
+keystore.properties
+
+# 系统文件
+.DS_Store
+Thumbs.db
