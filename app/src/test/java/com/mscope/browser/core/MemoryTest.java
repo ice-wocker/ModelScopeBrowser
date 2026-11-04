@@ -48,7 +48,7 @@ public class MemoryTest {
         List<Memory.Fact> fs = Memory.add(new ArrayList<>(),
                 "我的 github token 是 gho_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX", 1);
         assertEquals(1, fs.size());
-        assertFalse(fs.get(0).text.contains("gho_1T6i"));
+        assertFalse(fs.get(0).text.contains("gho_XXXX"));
         assertTrue(fs.get(0).text.contains("redacted"));
     }
 
